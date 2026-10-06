@@ -86,7 +86,7 @@ export function parseGitHubUrl(url: string): GitHubRepoInfo | null {
   const owner = segments[0];
   const repo = segments[1];
 
-  let branch = 'main';
+  let branch = '';
   let path = '';
 
   // E.g. owner/repo/tree/branch/path... OR owner/repo/blob/branch/path...

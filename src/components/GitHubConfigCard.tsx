@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Search, Link, ShieldAlert, Key, FolderDown, HelpCircle, Check, Info } from 'lucide-react';
+import { Search, Link, ShieldAlert, Key, FolderDown, HelpCircle, Check, Info, Upload } from 'lucide-react';
 import { parseGitHubUrl } from '../utils';
 import { GitHubRepoInfo } from '../types';
 import { translations, Language } from '../translations';
@@ -19,6 +19,7 @@ interface GitHubConfigCardProps {
   lang: Language;
   recursive: boolean;
   onRecursiveChange: (val: boolean) => void;
+  onOpenUpload?: () => void;
 }
 
 export default function GitHubConfigCard({ 
@@ -30,7 +31,8 @@ export default function GitHubConfigCard({
   onTokenChange,
   lang,
   recursive,
-  onRecursiveChange
+  onRecursiveChange,
+  onOpenUpload
 }: GitHubConfigCardProps) {
   const t = translations[lang];
   const [urlInput, setUrlInput] = useState('');
@@ -217,7 +219,7 @@ export default function GitHubConfigCard({
             <button
               type="button"
               onClick={onClear}
-              className="px-4 rounded-xl text-xs font-bold bg-rose-50/55 dark:bg-rose-950/20 border border-slate-200/85 dark:border-rose-950/60 hover:bg-rose-100/60 dark:hover:bg-rose-900/10 text-rose-600 dark:text-rose-450 hover:text-rose-700 transition-all cursor-pointer flex-1 py-3"
+              className="px-3 rounded-xl text-xs font-bold bg-rose-50/55 dark:bg-rose-950/20 border border-slate-200/85 dark:border-rose-950/60 hover:bg-rose-100/60 dark:hover:bg-rose-900/10 text-rose-600 dark:text-rose-450 hover:text-rose-700 transition-all cursor-pointer py-3 shrink-0"
             >
               {lang === 'zh' ? '清除数据' : 'Clear'}
             </button>
@@ -227,8 +229,7 @@ export default function GitHubConfigCard({
             type="submit"
             id="btn-fetch-generate"
             disabled={loading || !parsedInfo}
-            className={`flex items-center justify-center gap-2 rounded-xl py-3 px-4 text-xs font-bold tracking-wider transition-all focus:outline-hidden cursor-pointer
-              ${hasResults ? 'flex-[2]' : 'w-full'}
+            className={`flex items-center justify-center gap-2 rounded-xl py-3 px-4 text-xs font-bold tracking-wider transition-all focus:outline-hidden cursor-pointer flex-1
               ${loading 
                 ? 'bg-slate-400 text-white cursor-not-allowed' 
                 : parsedInfo
@@ -248,6 +249,19 @@ export default function GitHubConfigCard({
               <span>{t.btnStart}</span>
             )}
           </button>
+
+          {onOpenUpload && (
+            <button
+              type="button"
+              id="card-upload-btn"
+              onClick={onOpenUpload}
+              className="flex items-center justify-center gap-1.5 px-3.5 py-3 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 dark:bg-emerald-500/15 dark:hover:bg-emerald-500/25 border border-emerald-500/20 text-xs font-bold transition-all cursor-pointer shrink-0 active:scale-95"
+              title={lang === 'zh' ? '上传图片并获取 CDN 链接' : 'Upload image & get CDN link'}
+            >
+              <Upload className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+              <span>{lang === 'zh' ? '上传图片' : 'Upload'}</span>
+            </button>
+          )}
         </div>
       </form>
     </div>

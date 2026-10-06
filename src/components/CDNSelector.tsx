@@ -5,7 +5,18 @@
 
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Network, Rocket, Server, Shield, Plus, X, Link, Pencil } from 'lucide-react';
+import { 
+  Globe, 
+  Orbit, 
+  Cloud, 
+  Compass, 
+  Layers, 
+  Zap, 
+  Sparkles, 
+  Plus, 
+  X, 
+  Pencil 
+} from 'lucide-react';
 import { CDNType, CDNNode } from '../types';
 
 interface CDNSelectorProps {
@@ -95,11 +106,13 @@ export default function CDNSelector({
           const isSelected = selectedNode === node.id;
           const isCustom = node.id.startsWith('custom-');
 
-          let Icon = Link;
-          if (node.id === 'gcore') Icon = Network;
-          else if (node.id === 'fastly') Icon = Rocket;
-          else if (node.id === 'jsdelivr') Icon = Server;
-          else if (node.id === 'cloudflare') Icon = Shield;
+          let Icon = Sparkles;
+          if (node.id === 'jsdmirror1') Icon = Globe;
+          else if (node.id === 'gcore') Icon = Orbit;
+          else if (node.id === 'cloudflare') Icon = Cloud;
+          else if (node.id === 'jsdmirror2') Icon = Compass;
+          else if (node.id === 'jsdelivr') Icon = Layers;
+          else if (node.id === 'fastly') Icon = Zap;
 
           const displayLabel = node.name.replace(' 专属', '').replace(' 加速', '').replace(' 原版', '');
           const speedLabel = node.speedTag || (lang === 'zh' ? '自建线路' : 'Custom');
@@ -119,9 +132,9 @@ export default function CDNSelector({
             >
               {/* Card top */}
               <div className="flex items-center justify-between w-full min-w-0 p-2.5 pb-0">
-                <div className="flex items-center gap-1.5 min-w-0">
-                  <span className={`p-1.5 rounded-lg transition-colors ${isSelected ? 'bg-white/15 text-white dark:text-slate-950 font-bold' : 'bg-white dark:bg-[#151E33] text-slate-400 dark:text-slate-400 shadow-2xs'}`}>
-                    <Icon className="h-3.5 w-3.5" />
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className={`h-7 w-7 rounded-xl flex items-center justify-center shrink-0 transition-colors ${isSelected ? 'bg-white/15 text-white dark:text-slate-950 font-bold' : 'bg-white dark:bg-[#151E33] text-slate-500 dark:text-slate-400 shadow-2xs'}`}>
+                    <Icon className="h-3.5 w-3.5 stroke-[2.2]" />
                   </span>
                   <span
                     style={{ fontFamily: 'Inter' }}

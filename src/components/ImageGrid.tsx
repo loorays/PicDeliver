@@ -25,7 +25,7 @@ export default function ImageGrid({ images, selectedCdn, selectedCdnName, lang, 
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const viewMode = 'list'; // Default exclusively to minimalist horizontal long cards
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(4); // Pagine clean to fit details
+  const [itemsPerPage, setItemsPerPage] = useState(5); // Default to 5 items per user request
   const [copiedAllText, setCopiedAllText] = useState<'url' | 'markdown' | 'html' | null>(null);
   const [individualCopiedId, setIndividualCopiedId] = useState<string | null>(null);
   const [activeZoomImage, setActiveZoomImage] = useState<ImageItem | null>(null);

@@ -4,15 +4,16 @@
  */
 
 import React from 'react';
-import { Github, Globe, Sun, Moon } from 'lucide-react';
+import { Github, Globe, Sun, Moon, Upload } from 'lucide-react';
 import { Language } from '../translations';
 
 interface HeaderProps {
   lang: Language;
   onLanguageChange: (lang: Language) => void;
+  onOpenUpload?: () => void;
 }
 
-export default function Header({ lang, onLanguageChange }: HeaderProps) {
+export default function Header({ lang, onLanguageChange, onOpenUpload }: HeaderProps) {
   return (
     <header className="border-b border-slate-100 dark:border-slate-800/80 bg-white/95 dark:bg-[#090D16]/95 backdrop-blur-md sticky top-0 z-50 py-3.5 px-4 sm:px-6 lg:px-8 transition-colors duration-300">
       <div className="mx-auto max-w-7xl flex items-center justify-between gap-4">
@@ -33,9 +34,21 @@ export default function Header({ lang, onLanguageChange }: HeaderProps) {
         </div>
 
         {/* Right Side: Language Switcher and Actions */}
-        <div className="flex items-center gap-3 md:gap-4.5">
+        <div className="flex items-center gap-2.5 sm:gap-3.5">
+          {onOpenUpload && (
+            <button
+              type="button"
+              id="header-upload-btn"
+              onClick={onOpenUpload}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-black text-white dark:bg-emerald-500 dark:text-slate-950 dark:hover:bg-emerald-400 text-xs font-bold transition-all shadow-xs cursor-pointer active:scale-95"
+            >
+              <Upload className="h-3.5 w-3.5" />
+              <span>{lang === 'zh' ? '上传图片' : 'Upload Image'}</span>
+            </button>
+          )}
+
           <a
-            href="https://github.com/loorays/PicDeliver"
+            href="https://github.com/Rqtzbot/PicDeliver"
             target="_blank"
             rel="noopener noreferrer"
             className="text-slate-500 dark:text-slate-400 hover:text-slate-850 dark:hover:text-slate-200 transition-colors"

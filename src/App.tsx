@@ -8,9 +8,10 @@ import Header from './components/Header';
 import GitHubConfigCard from './components/GitHubConfigCard';
 import CDNSelector from './components/CDNSelector';
 import ImageGrid from './components/ImageGrid';
+import UploadModal from './components/UploadModal';
 import { GitHubRepoInfo, ImageItem, CDNType, ApiStatus, CDNNode } from './types';
 import { CDN_NODES, buildCdnUrl, isImageFile } from './utils';
-import { AlertCircle, ShieldAlert, Image as ImageIcon, Key, HelpCircle, Info, Globe, FolderDown } from 'lucide-react';
+import { AlertCircle, ShieldAlert, Image as ImageIcon, Key, HelpCircle, Info, Globe, FolderDown, Upload } from 'lucide-react';
 import { translations, Language } from './translations';
 
 export default function App() {
@@ -28,6 +29,8 @@ export default function App() {
 
   const [images, setImages] = useState<ImageItem[]>([]);
   const [selectedCdn, setSelectedCdn] = useState<CDNType>('jsdmirror1');
+  const [isUploadOpen, setIsUploadOpen] = useState(false);
+  const [pastedFile, setPastedFile] = useState<File | null>(null);
   
   const [dynamicCdns, setDynamicCdns] = useState<CDNNode[]>(() => {
     const stored = localStorage.getItem('gh_custom_cdns');
@@ -143,6 +146,11 @@ export default function App() {
     setApiStatus(prev => ({ ...prev, error: null }));
   };
 
+  const handleImageUploaded = (newImage: ImageItem) => {
+    setImages(prev => [newImage, ...prev.filter(item => item.path !== newImage.path)]);
+    setApiStatus(prev => ({ ...prev, error: null }));
+  };
+
   const handleTokenChange = (newToken: string) => {
     setToken(newToken);
     if (newToken.trim()) {
@@ -151,6 +159,40 @@ export default function App() {
       localStorage.removeItem('gh_cdn_token');
     }
   };
+
+  // Support global Ctrl+V pasting of images from clipboard
+  useEffect(() => {
+    const handleGlobalPaste = (e: ClipboardEvent) => {
+      // If upload modal is already open, it handles its own paste
+      if (isUploadOpen) return;
+
+      // Don't intercept if user is typing text into an input or textarea
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) {
+        const text = e.clipboardData?.getData('text/plain');
+        if (text && text.trim().length > 0) return;
+      }
+
+      const items = e.clipboardData?.items;
+      if (!items) return;
+
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (item.type.startsWith('image/')) {
+          const file = item.getAsFile();
+          if (file) {
+            e.preventDefault();
+            setPastedFile(file);
+            setIsUploadOpen(true);
+            break;
+          }
+        }
+      }
+    };
+
+    window.addEventListener('paste', handleGlobalPaste);
+    return () => window.removeEventListener('paste', handleGlobalPaste);
+  }, [isUploadOpen]);
 
   const executeFetch = async (repoInfo: GitHubRepoInfo, recursive: boolean, currentToken: string) => {
     setApiStatus(prev => ({ ...prev, loading: true, error: null }));
@@ -165,72 +207,109 @@ export default function App() {
     }
 
     try {
-      // 1. Resolve default branch if the parsed branch is empty or if we want to safety verify.
-      let branchName = repoInfo.branch || 'main';
+      // 1. Resolve default branch if the parsed branch is empty or not explicit.
+      let branchName = repoInfo.branch;
       
-      // If no branch was explicit in path tree, look it up
-      if (!repoInfo.branch) {
-        const repoRes = await fetch(`https://api.github.com/repos/${repoInfo.owner}/${repoInfo.repo}`, { headers });
-        updateRateLimits(repoRes);
-        
-        if (repoRes.status === 404) {
-          throw new Error(t.fetchRepoError);
-        } else if (repoRes.status === 401 || repoRes.status === 403) {
-          const detail = await repoRes.json().catch(() => ({}));
-          const msg = detail.message || '';
-          if (msg.toLowerCase().includes('rate limit') || msg.toLowerCase().includes('limit exceeded')) {
-            throw new Error('RATELIMIT_ERROR');
+      // If no branch was explicit in path tree, look up the repo's default_branch
+      if (!branchName) {
+        try {
+          const repoRes = await fetch(`https://api.github.com/repos/${repoInfo.owner}/${repoInfo.repo}`, { headers });
+          updateRateLimits(repoRes);
+          
+          if (repoRes.status === 404) {
+            throw new Error(t.fetchRepoError);
+          } else if (repoRes.status === 401 || repoRes.status === 403) {
+            const detail = await repoRes.json().catch(() => ({}));
+            const msg = detail.message || '';
+            if (msg.toLowerCase().includes('rate limit') || msg.toLowerCase().includes('limit exceeded')) {
+              throw new Error('RATELIMIT_ERROR');
+            }
+          } else if (repoRes.ok) {
+            const repoData = await repoRes.json();
+            branchName = repoData.default_branch || 'main';
           }
-          throw new Error(`${t.fetchRepoError} (${repoRes.status})`);
+        } catch (e: any) {
+          if (e.message === 'RATELIMIT_ERROR' || e.message === t.fetchRepoError) throw e;
         }
         
-        if (repoRes.ok) {
-          const repoData = await repoRes.json();
-          branchName = repoData.default_branch || 'main';
+        if (!branchName) {
+          branchName = 'main';
         }
       }
 
-      const parsedWithBranch = { ...repoInfo, branch: branchName };
+      const cleanSubPath = (repoInfo.path || '').replace(/^\/+|\/+$/g, '');
+      let parsedWithBranch = { ...repoInfo, branch: branchName, path: cleanSubPath };
       setActiveRepo(parsedWithBranch);
 
       let imageList: ImageItem[] = [];
 
+      // Helper to fetch contents or tree for a given branch
+      const fetchAttempt = async (targetBranch: string) => {
+        if (recursive) {
+          const treeUrl = `https://api.github.com/repos/${parsedWithBranch.owner}/${parsedWithBranch.repo}/git/trees/${targetBranch}?recursive=1`;
+          const treeRes = await fetch(treeUrl, { headers });
+          updateRateLimits(treeRes);
+          return treeRes;
+        } else {
+          const contentsUrl = cleanSubPath 
+            ? `https://api.github.com/repos/${parsedWithBranch.owner}/${parsedWithBranch.repo}/contents/${cleanSubPath}?ref=${targetBranch}`
+            : `https://api.github.com/repos/${parsedWithBranch.owner}/${parsedWithBranch.repo}/contents?ref=${targetBranch}`;
+          const contentsRes = await fetch(contentsUrl, { headers });
+          updateRateLimits(contentsRes);
+          return contentsRes;
+        }
+      };
+
+      let activeRes = await fetchAttempt(branchName);
+
+      // If 404 on the initial branch, automatically attempt common fallback branch (main <-> master)
+      if (activeRes.status === 404) {
+        const fallbackBranch = branchName === 'main' ? 'master' : branchName === 'master' ? 'main' : null;
+        if (fallbackBranch) {
+          const fbRes = await fetchAttempt(fallbackBranch);
+          if (fbRes.ok) {
+            branchName = fallbackBranch;
+            parsedWithBranch = { ...parsedWithBranch, branch: fallbackBranch };
+            setActiveRepo(parsedWithBranch);
+            activeRes = fbRes;
+          }
+        }
+      }
+
+      // Check final response status
+      if (activeRes.status === 404) {
+        if (cleanSubPath) {
+          throw new Error(
+            lang === 'zh'
+              ? `在分支「${branchName}」下未找到文件夹「${cleanSubPath}」。请检查文件夹拼写，或者清空路径以扫描整个仓库。`
+              : `Folder "${cleanSubPath}" not found in branch "${branchName}". Please verify the folder name or clear the path to scan the full repo.`
+          );
+        } else {
+          throw new Error(t.fetchFolderError);
+        }
+      } else if (activeRes.status === 401 || activeRes.status === 403) {
+        const detail = await activeRes.json().catch(() => ({}));
+        const msg = detail.message || '';
+        if (msg.toLowerCase().includes('rate limit') || msg.toLowerCase().includes('limit exceeded')) {
+          throw new Error('RATELIMIT_ERROR');
+        }
+        throw new Error(`${t.fetchRepoError} (${activeRes.status})`);
+      }
+
+      if (!activeRes.ok) {
+        throw new Error(t.fetchConnError);
+      }
+
+      const resData = await activeRes.json();
+
       if (recursive) {
         // --- RECURSIVE SCANNING ENGINE (Git Trees API) ---
-        const treeUrl = `https://api.github.com/repos/${parsedWithBranch.owner}/${parsedWithBranch.repo}/git/trees/${branchName}?recursive=1`;
-        const treeRes = await fetch(treeUrl, { headers });
-        updateRateLimits(treeRes);
-
-        if (treeRes.status === 404) {
-          throw new Error(t.fetchFolderError);
-        } else if (treeRes.status === 401 || treeRes.status === 403) {
-          const detail = await treeRes.json().catch(() => ({}));
-          const msg = detail.message || '';
-          if (msg.toLowerCase().includes('rate limit') || msg.toLowerCase().includes('limit exceeded')) {
-            throw new Error('RATELIMIT_ERROR');
-          }
-          throw new Error(`${t.fetchRepoError} (${treeRes.status})`);
-        }
-
-        if (!treeRes.ok) {
-          throw new Error(t.fetchConnError);
-        }
-
-        const treeData = await treeRes.json();
-        const files: any[] = treeData.tree || [];
-
-        // Normalize matching relative directory prefix
-        const targetPrefix = parsedWithBranch.path 
-          ? parsedWithBranch.path.replace(/^\/+|\/+$/g, '') + '/' 
-          : '';
+        const files: any[] = resData.tree || [];
+        const targetPrefix = cleanSubPath ? cleanSubPath + '/' : '';
 
         const matchedFiles = files.filter(file => {
-          const isFile = file.type === 'blob';
-          if (!isFile) return false;
-
-          const inTargetDir = targetPrefix ? file.path.startsWith(targetPrefix) : true;
-          if (!inTargetDir) return false;
-
+          if (file.type !== 'blob') return false;
+          if (targetPrefix && !file.path.startsWith(targetPrefix)) return false;
           return isImageFile(file.path);
         });
 
@@ -247,27 +326,7 @@ export default function App() {
 
       } else {
         // --- STANDARD SINGLE-LEVEL SCANNING ENGINE ---
-        const contentsUrl = `https://api.github.com/repos/${parsedWithBranch.owner}/${parsedWithBranch.repo}/contents/${parsedWithBranch.path}?ref=${branchName}`;
-        const contentsRes = await fetch(contentsUrl, { headers });
-        updateRateLimits(contentsRes);
-
-        if (contentsRes.status === 404) {
-          throw new Error(t.fetchFolderError);
-        } else if (contentsRes.status === 401 || contentsRes.status === 403) {
-          const detail = await contentsRes.json().catch(() => ({}));
-          const msg = detail.message || '';
-          if (msg.toLowerCase().includes('rate limit') || msg.toLowerCase().includes('limit exceeded')) {
-            throw new Error('RATELIMIT_ERROR');
-          }
-          throw new Error(`${t.fetchRepoError} (${contentsRes.status})`);
-        }
-
-        if (!contentsRes.ok) {
-          throw new Error(t.fetchConnError);
-        }
-
-        const contentsData = await contentsRes.json();
-        const files = Array.isArray(contentsData) ? contentsData : [contentsData];
+        const files = Array.isArray(resData) ? resData : [resData];
 
         const matchedFiles = files.filter(file => 
           file.type === 'file' && isImageFile(file.name)
@@ -398,7 +457,11 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#EEF0F3] dark:bg-[#090D16] flex flex-col text-slate-800 dark:text-slate-100 antialiased font-sans transition-colors duration-300">
-      <Header lang={lang} onLanguageChange={handleLanguageChange} />
+      <Header 
+        lang={lang} 
+        onLanguageChange={handleLanguageChange} 
+        onOpenUpload={() => setIsUploadOpen(true)}
+      />
 
       <main className="flex-1 mx-auto max-w-7xl w-full px-4 sm:px-6 lg:px-8 py-8">
         
@@ -417,6 +480,7 @@ export default function App() {
               lang={lang}
               recursive={recursive}
               onRecursiveChange={setRecursive}
+              onOpenUpload={() => setIsUploadOpen(true)}
             />
 
             {/* Accent CDN Core Selector - placed centrally inside work flow */}
@@ -594,6 +658,25 @@ export default function App() {
           <p>{t.footerText}</p>
         </div>
       </footer>
+
+      {/* Upload Image Modal */}
+      <UploadModal
+        isOpen={isUploadOpen}
+        onClose={() => {
+          setIsUploadOpen(false);
+          setPastedFile(null);
+        }}
+        lang={lang}
+        selectedCdn={selectedCdn}
+        dynamicCdns={dynamicCdns}
+        onSelectCdn={setSelectedCdn}
+        initialRepoInfo={activeRepo}
+        initialToken={token}
+        onTokenSave={handleTokenChange}
+        onImageUploaded={handleImageUploaded}
+        initialFile={pastedFile}
+        onClearInitialFile={() => setPastedFile(null)}
+      />
     </div>
   );
 }
