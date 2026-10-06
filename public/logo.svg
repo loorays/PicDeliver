@@ -1,0 +1,27 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <clipPath id="squircle">
+      <rect width="512" height="512" rx="114" ry="114" />
+    </clipPath>
+  </defs>
+  
+  <!-- Orange Squircle Background -->
+  <rect width="512" height="512" rx="114" ry="114" fill="#CE5D03" />
+  
+  <!-- Stylized Smooth White Script 'L' -->
+  <path fill="#FFFFFF" d="
+    M 154,92
+    C 160,86 182,82 198,87
+    C 208,91 213,99 211,114
+    C 203,156 195,220 191,274
+    C 188,312 196,344 226,368
+    C 258,394 316,402 376,376
+    C 392,369 403,365 410,372
+    C 416,379 414,392 402,402
+    C 362,434 292,442 226,424
+    C 168,408 132,366 127,308
+    C 122,246 128,166 142,112
+    C 145,100 148,94 154,92
+    Z
+  "/>
+</svg>

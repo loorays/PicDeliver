@@ -50,6 +50,15 @@ interface UploadModalProps {
   onClearInitialFile?: () => void;
 }
 
+const COMMIT_EMOJIS = [
+  '✨', '🚀', '📸', '🖼️', '🎉', '⚡', '🌟', '🎨', '💫', '📦',
+  '🎈', '🔥', '🌸', '💎', '🎯', '🌈', '💡', '🌻', '🦄', '🍀'
+];
+
+const getRandomCommitEmoji = () => {
+  return COMMIT_EMOJIS[Math.floor(Math.random() * COMMIT_EMOJIS.length)];
+};
+
 export default function UploadModal({
   isOpen,
   onClose,
@@ -310,6 +319,8 @@ export default function UploadModal({
     setUploading(true);
 
     try {
+      const emoji = getRandomCommitEmoji();
+      const commitMessage = `${emoji} 在${dirDisplayName}目录下创建了${finalFileName}`;
       let result;
       try {
         result = await uploadImageToGitHub({
@@ -320,7 +331,7 @@ export default function UploadModal({
           fileName: finalFileName,
           file: selectedFile,
           token: token.trim(),
-          commitMessage: `在${dirDisplayName}目录下创建了${finalFileName}`,
+          commitMessage,
         });
       } catch (err: any) {
         // If a file with this name already exists in the same hour, append minute/second to guarantee uniqueness
@@ -333,6 +344,7 @@ export default function UploadModal({
           const ext = extIdx !== -1 ? finalFileName.substring(extIdx) : '';
           finalFileName = `${baseName}_${min}${sec}${ext}`;
 
+          const retryCommitMessage = `${emoji} 在${dirDisplayName}目录下创建了${finalFileName}`;
           result = await uploadImageToGitHub({
             owner: repoData.owner,
             repo: repoData.repo,
@@ -341,7 +353,7 @@ export default function UploadModal({
             fileName: finalFileName,
             file: selectedFile,
             token: token.trim(),
-            commitMessage: `在${dirDisplayName}目录下创建了${finalFileName}`,
+            commitMessage: retryCommitMessage,
           });
         } else {
           throw err;

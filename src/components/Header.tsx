@@ -20,7 +20,7 @@ export default function Header({ lang, onLanguageChange, onOpenUpload }: HeaderP
         {/* Left Side Branding */}
         <div className="flex items-center gap-3">
           <div className="relative flex items-center">
-            <span className="h-5 w-1 bg-slate-800 dark:bg-emerald-500 rounded-full mr-2" />
+            <img src="/logo.png" alt="Logo" className="h-6 w-6 rounded-md mr-2 shadow-xs object-cover" />
             <h1 className="font-sans text-lg font-extrabold tracking-tight text-slate-900 dark:text-white">
               Pic<span className="text-slate-800 dark:text-slate-300">Deliver</span>
             </h1>
