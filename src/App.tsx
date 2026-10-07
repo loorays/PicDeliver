@@ -138,7 +138,12 @@ export default function App() {
   const handleLanguageChange = (newLang: Language) => {
     setLang(newLang);
     localStorage.setItem('gh_cdn_lang', newLang);
+    document.documentElement.lang = newLang === 'zh' ? 'zh-CN' : 'en';
   };
+
+  useEffect(() => {
+    document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en';
+  }, [lang]);
 
   const handleClearResults = () => {
     setImages([]);
@@ -528,7 +533,7 @@ export default function App() {
                 <div className="flex items-center justify-between gap-4 w-full">
                   <div className="flex items-center gap-2 text-[11px]">
                     <span className="flex h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-                    <span style={{ fontFamily: 'Inter' }} className="text-slate-400 dark:text-slate-555 font-normal tracking-tight">{t.quotaLabel}</span>
+                    <span className="text-slate-400 dark:text-slate-555 font-normal tracking-tight">{t.quotaLabel}</span>
                   </div>
                   <span className="font-extrabold text-slate-705 dark:text-slate-350 font-mono text-[11px] bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded shrink-0">
                     {apiStatus.rateLimitRemaining} / {apiStatus.rateLimitLimit}
@@ -620,6 +625,12 @@ export default function App() {
                 selectedCdnName={selectedCdnName}
                 lang={lang}
                 onClear={handleClearResults}
+                activeRepo={activeRepo}
+                token={token}
+                onTokenSave={handleTokenChange}
+                onDeleteImage={(deletedSha) => {
+                  setImages(prev => prev.filter(img => img.sha !== deletedSha));
+                }}
               />
             ) : !apiStatus.loading && !apiStatus.error && (
               /* Empty state placeholder card */

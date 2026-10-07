@@ -28,7 +28,8 @@ import {
   CheckCircle2, 
   Image as ImageIcon, 
   HelpCircle,
-  Trash2
+  Trash2,
+  ChevronDown
 } from 'lucide-react';
 import { GitHubRepoInfo, CDNType, CDNNode, ImageItem } from '../types';
 import { parseGitHubUrl, buildCdnUrl, formatBytes } from '../utils';
@@ -156,6 +157,72 @@ export default function UploadModal({
   // Big image lightbox modal state (view full size)
   const [showBigPreview, setShowBigPreview] = useState(false);
 
+  // Recent repository inputs history
+  const [showHistory, setShowHistory] = useState(false);
+  const [recentRepos, setRecentRepos] = useState<string[]>(() => {
+    try {
+      const stored = localStorage.getItem('gh_recent_upload_repos');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch (e) {
+      console.error(e);
+    }
+    return [];
+  });
+  const historyRef = useRef<HTMLDivElement>(null);
+
+  const saveToRecentRepos = (repoStr: string) => {
+    const trimmed = repoStr.trim();
+    if (!trimmed) return;
+    setRecentRepos((prev) => {
+      const updated = [trimmed, ...prev.filter((item) => item !== trimmed)].slice(0, 8);
+      try {
+        localStorage.setItem('gh_recent_upload_repos', JSON.stringify(updated));
+      } catch (e) {
+        console.error(e);
+      }
+      return updated;
+    });
+  };
+
+  const clearRecentRepos = () => {
+    setRecentRepos([]);
+    try {
+      localStorage.removeItem('gh_recent_upload_repos');
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const removeRecentRepo = (itemToRemove: string) => {
+    setRecentRepos((prev) => {
+      const updated = prev.filter((item) => item !== itemToRemove);
+      try {
+        localStorage.setItem('gh_recent_upload_repos', JSON.stringify(updated));
+      } catch (e) {
+        console.error(e);
+      }
+      return updated;
+    });
+  };
+
+  // Close history dropdown on outside click
+  useEffect(() => {
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (historyRef.current && !historyRef.current.contains(e.target as Node)) {
+        setShowHistory(false);
+      }
+    };
+    if (showHistory) {
+      document.addEventListener('mousedown', handleOutsideClick);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick);
+    };
+  }, [showHistory]);
+
   // Close big preview on Escape
   useEffect(() => {
     if (!showBigPreview) return;
@@ -172,7 +239,9 @@ export default function UploadModal({
   useEffect(() => {
     if (isOpen) {
       if (initialRepoInfo) {
-        setRepoInput(`${initialRepoInfo.owner}/${initialRepoInfo.repo}`);
+        const full = `${initialRepoInfo.owner}/${initialRepoInfo.repo}`;
+        setRepoInput(full);
+        saveToRecentRepos(full);
         if (initialRepoInfo.branch) {
           setBranch(initialRepoInfo.branch);
         }
@@ -316,6 +385,10 @@ export default function UploadModal({
     let finalFileName = fileName.trim() || generateYMDHMSFileName(selectedFile);
     const dirDisplayName = targetFolder || (lang === 'zh' ? '根' : 'root');
 
+    if (repoInput.trim()) {
+      saveToRecentRepos(repoInput.trim());
+    }
+
     setUploading(true);
 
     try {
@@ -403,6 +476,7 @@ export default function UploadModal({
     handleClearFile();
     setUploadSuccessResult(null);
     setShowBigPreview(false);
+    setShowHistory(false);
   };
 
   // Active CDN node & generated URL
@@ -607,15 +681,89 @@ export default function UploadModal({
               
               {/* Row 1: Repo + Branch */}
               <div className="flex gap-2">
-                <div className="relative flex-1">
-                  <Github className="h-4 w-4 text-slate-400 absolute left-3 top-2.5" />
+                <div ref={historyRef} className="relative flex-1">
+                  <Github className="h-4 w-4 text-slate-400 absolute left-3 top-2.5 z-10 pointer-events-none" />
                   <input
                     type="text"
                     value={repoInput}
                     onChange={(e) => setRepoInput(e.target.value)}
                     placeholder="owner/repo"
-                    className="w-full bg-slate-50 dark:bg-[#090D16] border border-slate-200 dark:border-slate-800 rounded-xl py-2 pl-9 pr-3 text-xs font-mono text-slate-800 dark:text-slate-100 focus:outline-hidden focus:border-slate-400"
+                    className="w-full bg-slate-50 dark:bg-[#090D16] border border-slate-200 dark:border-slate-800 rounded-xl py-2 pl-9 pr-9 text-xs font-mono text-slate-800 dark:text-slate-100 focus:outline-hidden focus:border-slate-400"
                   />
+                  
+                  {/* Dropdown toggle button with ChevronDown icon */}
+                  <div className="absolute right-2.5 top-2 flex items-center gap-1 z-10">
+                    <button
+                      type="button"
+                      onClick={() => setShowHistory(!showHistory)}
+                      title={lang === 'zh' ? '查看最近输入内容' : 'Recent inputs'}
+                      className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-0.5 rounded-md transition-colors cursor-pointer"
+                    >
+                      <ChevronDown className={`h-3.5 w-3.5 transition-transform duration-200 ${showHistory ? 'rotate-180 text-slate-700 dark:text-slate-200' : ''}`} />
+                    </button>
+                  </div>
+
+                  {/* Recent input dropdown panel */}
+                  {showHistory && (
+                    <div className="absolute left-0 right-0 top-full mt-1.5 z-30 bg-white dark:bg-[#151E33] border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl overflow-hidden py-1 animate-fade-in font-sans">
+                      <div className="px-3 py-1.5 border-b border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
+                        <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
+                          {lang === 'zh' ? '最近输入' : 'Recent Inputs'}
+                        </span>
+                        {recentRepos.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              clearRecentRepos();
+                            }}
+                            title={lang === 'zh' ? '清除最近输入内容' : 'Clear recent history'}
+                            className="text-slate-400 hover:text-rose-500 dark:hover:text-rose-400 p-0.5 rounded transition-colors cursor-pointer flex items-center gap-1 text-[11px]"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                            <span className="text-[10px]">{lang === 'zh' ? '清除' : 'Clear'}</span>
+                          </button>
+                        )}
+                      </div>
+
+                      {recentRepos.length > 0 ? (
+                        <div className="max-h-48 overflow-y-auto py-0.5">
+                          {recentRepos.map((item, idx) => (
+                            <div
+                              key={`${item}-${idx}`}
+                              onClick={() => {
+                                setRepoInput(item);
+                                setShowHistory(false);
+                              }}
+                              className="w-full text-left px-3 py-1.5 text-xs font-mono text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-[#090D16] transition-colors truncate flex items-center justify-between gap-2 cursor-pointer group"
+                            >
+                              <span className="truncate flex-1">{item}</span>
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                {repoInput === item && (
+                                  <Check className="h-3 w-3 text-emerald-500 shrink-0" />
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    removeRecentRepo(item);
+                                  }}
+                                  title={lang === 'zh' ? '删除此记录' : 'Remove item'}
+                                  className="text-slate-400 hover:text-rose-500 dark:hover:text-rose-400 p-0.5 rounded transition-colors opacity-60 group-hover:opacity-100 cursor-pointer"
+                                >
+                                  <Trash2 className="h-3 w-3" />
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="px-3 py-3 text-center text-xs text-slate-400 dark:text-slate-500">
+                          {lang === 'zh' ? '暂无最近输入记录' : 'No recent history'}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
                 <div className="relative w-28">
                   <GitBranch className="h-3.5 w-3.5 text-slate-400 absolute left-2.5 top-2.5" />

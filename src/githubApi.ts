@@ -169,3 +169,76 @@ export async function uploadImageToGitHub({
     htmlUrl: data.content?.html_url || `https://github.com/${owner}/${repo}/blob/${branch}/${fullPath}`,
   };
 }
+
+/**
+ * Delete an image file from GitHub via Contents API
+ */
+export async function deleteImageFromGitHub({
+  owner,
+  repo,
+  branch = 'main',
+  filePath,
+  sha,
+  token,
+  commitMessage,
+}: {
+  owner: string;
+  repo: string;
+  branch?: string;
+  filePath: string;
+  sha: string;
+  token: string;
+  commitMessage?: string;
+}): Promise<boolean> {
+  if (!token.trim()) {
+    throw new Error('MISSING_TOKEN');
+  }
+
+  const cleanPath = filePath.trim().replace(/^\/+/, '');
+  const url = `https://api.github.com/repos/${owner}/${repo}/contents/${cleanPath}`;
+  const headers: Record<string, string> = {
+    'Accept': 'application/vnd.github.v3+json',
+    'Content-Type': 'application/json',
+    'Authorization': `token ${token.trim()}`,
+  };
+
+  const message = commitMessage || `🗑️ Delete ${cleanPath.split('/').pop()} via PicDeliver`;
+
+  const payload: any = {
+    message,
+    sha,
+    branch: branch || 'main',
+  };
+
+  const res = await fetch(url, {
+    method: 'DELETE',
+    headers,
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    let errorDetail: any = {};
+    try {
+      errorDetail = await res.json();
+    } catch {
+      // ignore
+    }
+
+    if (res.status === 401) {
+      throw new Error('TOKEN_INVALID');
+    }
+    if (res.status === 403) {
+      throw new Error('TOKEN_NO_PERMISSION');
+    }
+    if (res.status === 404) {
+      throw new Error('REPO_OR_FILE_NOT_FOUND');
+    }
+    if (res.status === 409) {
+      throw new Error('SHA_MISMATCH');
+    }
+
+    throw new Error(errorDetail.message || `Delete failed with status ${res.status}`);
+  }
+
+  return true;
+}

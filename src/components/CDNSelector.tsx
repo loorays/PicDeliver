@@ -137,7 +137,6 @@ export default function CDNSelector({
                     <Icon className="h-3.5 w-3.5 stroke-[2.2]" />
                   </span>
                   <span
-                    style={{ fontFamily: 'Inter' }}
                     className={`text-[15px] font-extrabold truncate ${isSelected ? 'text-white dark:text-slate-950' : 'text-slate-800 dark:text-slate-200'}`}
                   >
                     {displayLabel.charAt(0).toUpperCase() + displayLabel.slice(1)}
