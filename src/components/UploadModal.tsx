@@ -93,12 +93,30 @@ export default function UploadModal({
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [filePreview, setFilePreview] = useState<string | null>(null);
   const [fileName, setFileName] = useState('');
+  const [currentFileTimestamp, setCurrentFileTimestamp] = useState<string>('');
   const [useYmdhmsName, setUseYmdhmsName] = useState(true);
+  const [enablePrefix, setEnablePrefix] = useState<boolean>(() => {
+    try {
+      const stored = localStorage.getItem('gh_upload_use_prefix');
+      if (stored !== null) return stored === 'true';
+      return Boolean(localStorage.getItem('gh_upload_name_prefix'));
+    } catch {
+      return false;
+    }
+  });
+  const [namePrefix, setNamePrefix] = useState<string>(() => {
+    try {
+      return localStorage.getItem('gh_upload_name_prefix') || '';
+    } catch {
+      return '';
+    }
+  });
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Helper to format file name as Year-Month-Day-Hour-Minute-Second (年月日时分秒: YYYYMMDDHHmmss.ext)
-  const generateYMDHMSFileName = (file: File): string => {
+  const PREFIX_PRESETS = ['img_', 'pic_', 'blog_', 'cdn_'];
+
+  const generateCurrentTimestamp = (): string => {
     const now = new Date();
     const year = now.getFullYear();
     const month = String(now.getMonth() + 1).padStart(2, '0');
@@ -106,24 +124,64 @@ export default function UploadModal({
     const hour = String(now.getHours()).padStart(2, '0');
     const minute = String(now.getMinutes()).padStart(2, '0');
     const second = String(now.getSeconds()).padStart(2, '0');
+    return `${year}${month}${day}${hour}${minute}${second}`;
+  };
 
+  const getFileExtension = (file: File): string => {
     const dotIdx = file.name.lastIndexOf('.');
-    let ext = '.png';
-    if (dotIdx !== -1 && file.name.substring(dotIdx).length <= 5) {
-      ext = file.name.substring(dotIdx).toLowerCase();
+    if (dotIdx !== -1 && file.name.substring(dotIdx).length <= 6) {
+      return file.name.substring(dotIdx).toLowerCase();
     } else if (file.type) {
       const typePart = file.type.split('/')[1];
       if (typePart) {
-        ext = `.${typePart === 'jpeg' ? 'jpg' : typePart}`;
+        return `.${typePart === 'jpeg' ? 'jpg' : typePart}`;
       }
     }
-    return `${year}${month}${day}${hour}${minute}${second}${ext}`;
+    return '.png';
+  };
+
+  const getActivePrefix = (enabled: boolean, prefix: string): string => {
+    if (!enabled) return '';
+    return prefix.trim();
+  };
+
+  const generateChosenFileName = (
+    file: File,
+    ymdhms: boolean,
+    prefixEnabled: boolean,
+    prefixText: string,
+    fixedTimestamp?: string
+  ): string => {
+    const activePrefix = getActivePrefix(prefixEnabled, prefixText);
+    const ext = getFileExtension(file);
+    if (ymdhms) {
+      const ts = fixedTimestamp || generateCurrentTimestamp();
+      return activePrefix ? `${activePrefix}${ts}${ext}` : `${ts}${ext}`;
+    } else {
+      const originalOrFallback = (file.name && file.name !== 'blob') ? file.name : `pasted_image${ext}`;
+      return activePrefix ? `${activePrefix}${originalOrFallback}` : originalOrFallback;
+    }
+  };
+
+  const getSamplePreviewName = (
+    ymdhms: boolean,
+    prefixEnabled: boolean,
+    prefixText: string
+  ): string => {
+    const activePrefix = getActivePrefix(prefixEnabled, prefixText);
+    const sampleTs = generateCurrentTimestamp();
+    if (ymdhms) {
+      return activePrefix ? `${activePrefix}${sampleTs}.png` : `${sampleTs}.png`;
+    } else {
+      return activePrefix ? `${activePrefix}photo.png` : `photo.png`;
+    }
   };
 
   const handleClearFile = () => {
     setSelectedFile(null);
     setFilePreview(null);
     setFileName('');
+    setCurrentFileTimestamp('');
     setUploadError(null);
     setShowBigPreview(false);
     if (fileInputRef.current) {
@@ -131,11 +189,48 @@ export default function UploadModal({
     }
   };
 
+  const handlePrefixChange = (newPrefix: string) => {
+    setNamePrefix(newPrefix);
+    try {
+      localStorage.setItem('gh_upload_name_prefix', newPrefix);
+    } catch (e) {
+      console.error(e);
+    }
+    if (selectedFile) {
+      setFileName(generateChosenFileName(selectedFile, useYmdhmsName, enablePrefix, newPrefix, currentFileTimestamp));
+    }
+  };
+
+  const handleToggleEnablePrefix = (checked: boolean) => {
+    setEnablePrefix(checked);
+    try {
+      localStorage.setItem('gh_upload_use_prefix', String(checked));
+    } catch (e) {
+      console.error(e);
+    }
+    if (selectedFile) {
+      setFileName(generateChosenFileName(selectedFile, useYmdhmsName, checked, namePrefix, currentFileTimestamp));
+    }
+  };
+
+  const handleSelectPreset = (preset: string) => {
+    if (enablePrefix && namePrefix === preset) {
+      handleToggleEnablePrefix(false);
+    } else {
+      setEnablePrefix(true);
+      try {
+        localStorage.setItem('gh_upload_use_prefix', 'true');
+      } catch (e) {
+        console.error(e);
+      }
+      handlePrefixChange(preset);
+    }
+  };
+
   const handleToggleNaming = (checked: boolean) => {
     setUseYmdhmsName(checked);
     if (selectedFile) {
-      const originalOrFallback = (selectedFile.name && selectedFile.name !== 'blob') ? selectedFile.name : 'pasted_image.png';
-      setFileName(checked ? generateYMDHMSFileName(selectedFile) : originalOrFallback);
+      setFileName(generateChosenFileName(selectedFile, checked, enablePrefix, namePrefix, currentFileTimestamp));
     }
   };
 
@@ -304,8 +399,9 @@ export default function UploadModal({
       return;
     }
     setSelectedFile(file);
-    const originalOrFallback = (file.name && file.name !== 'blob') ? file.name : 'pasted_image.png';
-    const chosenName = useYmdhmsName ? generateYMDHMSFileName(file) : originalOrFallback;
+    const ts = generateCurrentTimestamp();
+    setCurrentFileTimestamp(ts);
+    const chosenName = generateChosenFileName(file, useYmdhmsName, enablePrefix, namePrefix, ts);
     setFileName(chosenName);
     setUploadError(null);
 
@@ -356,7 +452,7 @@ export default function UploadModal({
     return () => {
       window.removeEventListener('paste', handleModalPaste);
     };
-  }, [isOpen, uploadSuccessResult, useYmdhmsName]);
+  }, [isOpen, uploadSuccessResult, useYmdhmsName, enablePrefix, namePrefix]);
 
   // Handle Token change
   const handleTokenChange = (val: string) => {
@@ -382,7 +478,7 @@ export default function UploadModal({
     }
 
     const targetFolder = folderMode === 'select' ? selectedFolder : newFolderName.trim().replace(/^\/+|\/+$/g, '');
-    let finalFileName = fileName.trim() || generateYMDHMSFileName(selectedFile);
+    let finalFileName = fileName.trim() || generateChosenFileName(selectedFile, useYmdhmsName, enablePrefix, namePrefix, currentFileTimestamp);
     const dirDisplayName = targetFolder || (lang === 'zh' ? '根' : 'root');
 
     if (repoInput.trim()) {
@@ -492,6 +588,8 @@ export default function UploadModal({
     setCopiedType(type);
     setTimeout(() => setCopiedType(null), 1800);
   };
+
+  const samplePreviewName = getSamplePreviewName(useYmdhmsName, enablePrefix, namePrefix);
 
   if (!isOpen) return null;
 
@@ -892,28 +990,121 @@ export default function UploadModal({
               />
 
               {!selectedFile ? (
-                <div
-                  onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
-                  onDragLeave={(e) => { e.preventDefault(); setIsDragging(false); }}
-                  onDrop={(e) => {
-                    e.preventDefault();
-                    setIsDragging(false);
-                    if (e.dataTransfer.files?.[0]) handleFileChange(e.dataTransfer.files[0]);
-                  }}
-                  onClick={() => fileInputRef.current?.click()}
-                  className={`border-2 border-dashed rounded-xl py-6 px-4 text-center cursor-pointer transition-all ${
-                    isDragging
-                      ? 'border-emerald-500 bg-emerald-50/20'
-                      : 'border-slate-200 dark:border-slate-800 hover:border-slate-400 dark:hover:border-slate-700 bg-slate-50/40 dark:bg-[#090D16]/40'
-                  }`}
-                >
-                  <Upload className="h-6 w-6 text-slate-400 mx-auto mb-1.5" />
-                  <p className="text-xs font-bold text-slate-600 dark:text-slate-300">
-                    {lang === 'zh' ? '点击、拖拽或按 Ctrl+V 粘贴图片' : 'Click, drag or press Ctrl+V to paste'}
-                  </p>
-                  <p className="text-[10.5px] text-slate-400 dark:text-slate-500 mt-1">
-                    {lang === 'zh' ? '支持直接从剪切板粘贴截图或图片' : 'Supports pasting screenshots directly from clipboard'}
-                  </p>
+                <div className="space-y-2">
+                  <div
+                    onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+                    onDragLeave={(e) => { e.preventDefault(); setIsDragging(false); }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      setIsDragging(false);
+                      if (e.dataTransfer.files?.[0]) handleFileChange(e.dataTransfer.files[0]);
+                    }}
+                    onClick={() => fileInputRef.current?.click()}
+                    className={`border-2 border-dashed rounded-xl py-6 px-4 text-center cursor-pointer transition-all ${
+                      isDragging
+                        ? 'border-emerald-500 bg-emerald-50/20'
+                        : 'border-slate-200 dark:border-slate-800 hover:border-slate-400 dark:hover:border-slate-700 bg-slate-50/40 dark:bg-[#090D16]/40'
+                    }`}
+                  >
+                    <Upload className="h-6 w-6 text-slate-400 mx-auto mb-1.5" />
+                    <p className="text-xs font-bold text-slate-600 dark:text-slate-300">
+                      {lang === 'zh' ? '点击、拖拽或按 Ctrl+V 粘贴图片' : 'Click, drag or press Ctrl+V to paste'}
+                    </p>
+                    <p className="text-[10.5px] text-slate-400 dark:text-slate-500 mt-1">
+                      {lang === 'zh' ? '支持直接从剪切板粘贴截图或图片' : 'Supports pasting screenshots directly from clipboard'}
+                    </p>
+                  </div>
+
+                  {/* Pre-upload naming preferences (Prefix & Timestamp toggle) */}
+                  <div className="bg-slate-50/70 dark:bg-[#090D16]/70 p-3 rounded-xl border border-slate-200/80 dark:border-slate-800 space-y-2 text-xs">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div className="flex flex-wrap items-center gap-3">
+                        {/* 1. YMDHMS Checkbox */}
+                        <label className="flex items-center gap-1.5 text-[11px] text-slate-700 dark:text-slate-200 cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={useYmdhmsName}
+                            onChange={(e) => handleToggleNaming(e.target.checked)}
+                            className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 h-3.5 w-3.5 cursor-pointer"
+                          />
+                          <span className="font-medium">{lang === 'zh' ? '按年月日时分秒命名' : 'Format as YYYYMMDDHHmmss'}</span>
+                        </label>
+
+                        {/* 2. Custom Prefix Checkbox */}
+                        <label className="flex items-center gap-1.5 text-[11px] text-slate-700 dark:text-slate-200 cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={enablePrefix}
+                            onChange={(e) => handleToggleEnablePrefix(e.target.checked)}
+                            className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 h-3.5 w-3.5 cursor-pointer"
+                          />
+                          <span className="font-medium">{lang === 'zh' ? '添加自定义前缀' : 'Add custom prefix'}</span>
+                        </label>
+                      </div>
+
+                      {/* Live Rule Preview */}
+                      <div className="flex items-center gap-1.5 text-[10.5px] text-slate-400 font-mono shrink-0">
+                        <span>{lang === 'zh' ? '命名示例:' : 'Preview:'}</span>
+                        <span className="text-emerald-600 dark:text-emerald-400 font-semibold bg-emerald-50/80 dark:bg-emerald-950/40 px-1.5 py-0.5 rounded border border-emerald-200/50 dark:border-emerald-800/40 truncate max-w-[170px]" title={samplePreviewName}>
+                          {samplePreviewName}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Prefix Input & Quick Chips */}
+                    <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-slate-200/50 dark:border-slate-800/60">
+                      <div className="relative flex-1 min-w-[140px]">
+                        <input
+                          type="text"
+                          value={namePrefix}
+                          disabled={!enablePrefix}
+                          onChange={(e) => handlePrefixChange(e.target.value)}
+                          placeholder={
+                            enablePrefix
+                              ? (lang === 'zh' ? '输入自定义前缀 (如 blog_ 或 pic-)' : 'Enter prefix (e.g. blog_ or pic-)')
+                              : (lang === 'zh' ? '未启用前缀 (勾选上方即可启用)' : 'Prefix disabled (check above to enable)')
+                          }
+                          className={`w-full border rounded-lg py-1 px-2.5 pr-6 text-xs font-mono transition-colors focus:outline-hidden ${
+                            enablePrefix
+                              ? 'bg-white dark:bg-[#151E33] border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:border-emerald-500'
+                              : 'bg-slate-100/60 dark:bg-[#0b101d] border-dashed border-slate-200 dark:border-slate-800 text-slate-400 cursor-not-allowed placeholder-slate-400/70'
+                          }`}
+                        />
+                        {enablePrefix && namePrefix && (
+                          <button
+                            type="button"
+                            onClick={() => handlePrefixChange('')}
+                            title={lang === 'zh' ? '清空前缀' : 'Clear prefix'}
+                            className="absolute right-1 top-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-0.5 rounded cursor-pointer"
+                          >
+                            <X className="h-2.5 w-2.5" />
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Quick Presets */}
+                      <div className="flex items-center gap-1 shrink-0">
+                        <span className="text-[10px] text-slate-400 hidden sm:inline">{lang === 'zh' ? '常用:' : 'Presets:'}</span>
+                        {PREFIX_PRESETS.map((preset) => {
+                          const isSelected = enablePrefix && namePrefix === preset;
+                          return (
+                            <button
+                              key={preset}
+                              type="button"
+                              onClick={() => handleSelectPreset(preset)}
+                              className={`px-1.5 py-0.5 rounded text-[10.5px] font-mono cursor-pointer transition-all ${
+                                isSelected
+                                  ? 'bg-emerald-600 text-white font-bold shadow-xs'
+                                  : 'bg-white dark:bg-[#151E33] border border-slate-200/80 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:border-slate-400'
+                              }`}
+                            >
+                              {preset}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
                 </div>
               ) : (
                 <div className="bg-slate-50 dark:bg-[#090D16] p-3 rounded-xl border border-slate-200/80 dark:border-slate-800 space-y-2.5">
@@ -936,39 +1127,116 @@ export default function UploadModal({
                     </button>
                     
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between">
-                        <span className="font-mono text-xs font-bold text-slate-800 dark:text-slate-100 truncate">
-                          {fileName}
-                        </span>
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="text"
+                          value={fileName}
+                          onChange={(e) => setFileName(e.target.value)}
+                          className="w-full bg-white dark:bg-[#151E33] border border-slate-200 dark:border-slate-800 rounded-lg py-1 px-2 text-xs font-mono font-bold text-slate-800 dark:text-slate-100 focus:outline-hidden focus:border-slate-400 truncate"
+                          title={lang === 'zh' ? '可直接微调最终文件名' : 'Edit final filename'}
+                        />
                         <button
                           type="button"
                           onClick={handleClearFile}
-                          className="text-[11px] text-rose-500 hover:text-rose-600 dark:text-rose-400 hover:underline cursor-pointer shrink-0 ml-2 flex items-center gap-1"
+                          className="text-[11px] text-rose-500 hover:text-rose-600 dark:text-rose-400 hover:underline cursor-pointer shrink-0 ml-1 flex items-center gap-1"
                         >
                           <Trash2 className="h-3 w-3" />
                           <span>{lang === 'zh' ? '清除' : 'Clear'}</span>
                         </button>
                       </div>
-                      <div className="flex items-center gap-2 text-[11px] text-slate-400 mt-0.5 font-mono">
+                      <div className="flex items-center gap-2 text-[11px] text-slate-400 mt-1 font-mono">
                         <span>{formatBytes(selectedFile.size)}</span>
                       </div>
                     </div>
                   </div>
 
-                  {/* Naming toggle: 年月日时分秒 vs 原名称 */}
-                  <div className="pt-2 border-t border-slate-200/60 dark:border-slate-800 flex items-center justify-between gap-2">
-                    <label className="flex items-center gap-2 text-[11px] text-slate-700 dark:text-slate-200 cursor-pointer select-none">
-                      <input
-                        type="checkbox"
-                        checked={useYmdhmsName}
-                        onChange={(e) => handleToggleNaming(e.target.checked)}
-                        className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 h-3.5 w-3.5 cursor-pointer"
-                      />
-                      <span>{lang === 'zh' ? '按年月日时分秒命名' : 'Format as Year-Month-Day-Hour-Minute-Second'}</span>
-                    </label>
-                    <span className="text-[10px] text-slate-400 font-mono">
-                      {useYmdhmsName ? (lang === 'zh' ? '当前：年月日时分秒' : 'YYYYMMDDHHmmss') : (lang === 'zh' ? '当前：原文件名' : 'Original name')}
-                    </span>
+                  {/* Naming toggle & Custom prefix controls */}
+                  <div className="pt-2 border-t border-slate-200/60 dark:border-slate-800 space-y-2 text-xs">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div className="flex flex-wrap items-center gap-3">
+                        {/* 1. YMDHMS Checkbox */}
+                        <label className="flex items-center gap-1.5 text-[11px] text-slate-700 dark:text-slate-200 cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={useYmdhmsName}
+                            onChange={(e) => handleToggleNaming(e.target.checked)}
+                            className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 h-3.5 w-3.5 cursor-pointer"
+                          />
+                          <span className="font-medium">{lang === 'zh' ? '按年月日时分秒命名' : 'Format as YYYYMMDDHHmmss'}</span>
+                        </label>
+
+                        {/* 2. Custom Prefix Checkbox */}
+                        <label className="flex items-center gap-1.5 text-[11px] text-slate-700 dark:text-slate-200 cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={enablePrefix}
+                            onChange={(e) => handleToggleEnablePrefix(e.target.checked)}
+                            className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 h-3.5 w-3.5 cursor-pointer"
+                          />
+                          <span className="font-medium">{lang === 'zh' ? '添加自定义前缀' : 'Add custom prefix'}</span>
+                        </label>
+                      </div>
+
+                      <span className="text-[10.5px] text-slate-400 font-mono">
+                        {enablePrefix && namePrefix.trim()
+                          ? (lang === 'zh' ? `已生效前缀 [${namePrefix.trim()}]` : `Prefix [${namePrefix.trim()}] active`)
+                          : (lang === 'zh' ? '未添加前缀' : 'No prefix')}
+                      </span>
+                    </div>
+
+                    {/* Prefix Input & Quick Chips */}
+                    <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-slate-200/40 dark:border-slate-800/60">
+                      <div className="relative flex-1 min-w-[140px]">
+                        <input
+                          type="text"
+                          value={namePrefix}
+                          disabled={!enablePrefix}
+                          onChange={(e) => handlePrefixChange(e.target.value)}
+                          placeholder={
+                            enablePrefix
+                              ? (lang === 'zh' ? '输入自定义前缀 (如 blog_ 或 pic-)' : 'Enter prefix (e.g. blog_ or pic-)')
+                              : (lang === 'zh' ? '未启用前缀 (勾选上方即可启用)' : 'Prefix disabled (check above to enable)')
+                          }
+                          className={`w-full border rounded-lg py-1 px-2.5 pr-6 text-xs font-mono transition-colors focus:outline-hidden ${
+                            enablePrefix
+                              ? 'bg-white dark:bg-[#151E33] border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:border-emerald-500'
+                              : 'bg-slate-100/60 dark:bg-[#0b101d] border-dashed border-slate-200 dark:border-slate-800 text-slate-400 cursor-not-allowed placeholder-slate-400/70'
+                          }`}
+                        />
+                        {enablePrefix && namePrefix && (
+                          <button
+                            type="button"
+                            onClick={() => handlePrefixChange('')}
+                            title={lang === 'zh' ? '清空前缀' : 'Clear prefix'}
+                            className="absolute right-1 top-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-0.5 rounded cursor-pointer"
+                          >
+                            <X className="h-2.5 w-2.5" />
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Quick Presets */}
+                      <div className="flex items-center gap-1 shrink-0">
+                        <span className="text-[10px] text-slate-400 hidden sm:inline">{lang === 'zh' ? '常用:' : 'Presets:'}</span>
+                        {PREFIX_PRESETS.map((preset) => {
+                          const isSelected = enablePrefix && namePrefix === preset;
+                          return (
+                            <button
+                              key={preset}
+                              type="button"
+                              onClick={() => handleSelectPreset(preset)}
+                              className={`px-1.5 py-0.5 rounded text-[10.5px] font-mono cursor-pointer transition-all ${
+                                isSelected
+                                  ? 'bg-emerald-600 text-white font-bold shadow-xs'
+                                  : 'bg-white dark:bg-[#151E33] border border-slate-200/80 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:border-slate-400'
+                              }`}
+                            >
+                              {preset}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
                   </div>
                 </div>
               )}
