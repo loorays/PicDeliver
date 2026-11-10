@@ -1,5 +1,5 @@
 # PicDeliver | GitHub 图像 CDN 极速转换器 🚀
-
+一键直达：https://img2cdn.looryas.top
 > 基于 GitHub 仓库的极速图片托管、CDN 多节点加速路由与格式转换工具。
 
 ---
