@@ -22,7 +22,6 @@ import {
   Link as LinkIcon, 
   FileCode, 
   Code, 
-  FileText, 
   Plus, 
   GitBranch, 
   CheckCircle2, 
@@ -32,7 +31,7 @@ import {
   ChevronDown
 } from 'lucide-react';
 import { GitHubRepoInfo, CDNType, CDNNode, ImageItem } from '../types';
-import { parseGitHubUrl, buildCdnUrl, formatBytes } from '../utils';
+import { parseGitHubUrl, buildCdnUrl, formatBytes, isImageFile } from '../utils';
 import { fetchRepoDirectories, uploadImageToGitHub } from '../githubApi';
 import { translations, Language } from '../translations';
 
@@ -42,7 +41,6 @@ interface UploadModalProps {
   lang: Language;
   selectedCdn: CDNType;
   dynamicCdns: CDNNode[];
-  onSelectCdn: (cdn: CDNType) => void;
   initialRepoInfo: GitHubRepoInfo | null;
   initialToken: string;
   onTokenSave: (token: string) => void;
@@ -66,7 +64,6 @@ export default function UploadModal({
   lang,
   selectedCdn,
   dynamicCdns,
-  onSelectCdn,
   initialRepoInfo,
   initialToken,
   onTokenSave,
@@ -132,9 +129,12 @@ export default function UploadModal({
     if (dotIdx !== -1 && file.name.substring(dotIdx).length <= 6) {
       return file.name.substring(dotIdx).toLowerCase();
     } else if (file.type) {
-      const typePart = file.type.split('/')[1];
+      const typePart = file.type.split('/')[1]?.toLowerCase();
       if (typePart) {
-        return `.${typePart === 'jpeg' ? 'jpg' : typePart}`;
+        if (typePart === 'jpeg') return '.jpg';
+        if (typePart === 'svg+xml') return '.svg';
+        if (typePart === 'x-icon' || typePart === 'vnd.microsoft.icon') return '.ico';
+        return `.${typePart}`;
       }
     }
     return '.png';
@@ -318,19 +318,23 @@ export default function UploadModal({
     };
   }, [showHistory]);
 
-  // Close big preview on Escape
+  // Close big preview or modal on Escape
   useEffect(() => {
-    if (!showBigPreview) return;
+    if (!isOpen) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        setShowBigPreview(false);
+        if (showBigPreview) {
+          setShowBigPreview(false);
+        } else if (!uploading) {
+          onClose();
+        }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [showBigPreview]);
+  }, [isOpen, showBigPreview, uploading, onClose]);
 
-  // Prepopulate repoInput when opening
+  // Prepopulate repoInput and sync token when opening
   useEffect(() => {
     if (isOpen) {
       if (initialRepoInfo) {
@@ -344,23 +348,16 @@ export default function UploadModal({
           setSelectedFolder(initialRepoInfo.path);
         }
       }
-      if (initialToken) {
-        setToken(initialToken);
-      }
+      setToken(initialToken || '');
     }
   }, [isOpen, initialRepoInfo, initialToken]);
 
   // Parse repo info
   const parseRepo = (): { owner: string; repo: string } | null => {
     if (!repoInput.trim()) return null;
-    const trimmed = repoInput.trim();
-    if (trimmed.includes('github.com')) {
-      const parsed = parseGitHubUrl(trimmed);
-      if (parsed) return { owner: parsed.owner, repo: parsed.repo };
-    }
-    const parts = trimmed.replace(/^https?:\/\/github\.com\//, '').split('/');
-    if (parts.length >= 2 && parts[0] && parts[1]) {
-      return { owner: parts[0], repo: parts[1] };
+    const parsed = parseGitHubUrl(repoInput.trim());
+    if (parsed && parsed.owner && parsed.repo) {
+      return { owner: parsed.owner, repo: parsed.repo };
     }
     return null;
   };
@@ -371,11 +368,14 @@ export default function UploadModal({
     if (!repoData) return;
     setLoadingFolders(true);
     try {
-      const dirs = await fetchRepoDirectories(repoData.owner, repoData.repo, branch, token);
+      const dirs = await fetchRepoDirectories(repoData.owner, repoData.repo, branch.trim() || 'main', token);
       setExistingFolders(dirs);
-      if (dirs.length > 0 && !selectedFolder) {
-        const match = dirs.find(d => d === 'images' || d === 'img' || d.startsWith('images/') || d.startsWith('img/'));
-        if (match) setSelectedFolder(match);
+      if (dirs.length > 0) {
+        setSelectedFolder(prev => {
+          if (prev && dirs.includes(prev)) return prev;
+          const match = dirs.find(d => d === 'images' || d === 'img' || d.startsWith('images/') || d.startsWith('img/'));
+          return match || '';
+        });
       }
     } catch (e) {
       console.error(e);
@@ -394,7 +394,7 @@ export default function UploadModal({
   // Handle file selection (from file picker, drag & drop, or Ctrl+V clipboard paste)
   const handleFileChange = (file: File | null) => {
     if (!file) return;
-    if (!file.type.startsWith('image/')) {
+    if (!file.type.startsWith('image/') && !isImageFile(file.name)) {
       setUploadError(lang === 'zh' ? '请选择有效的图片文件' : 'Please select an image file');
       return;
     }
@@ -539,9 +539,10 @@ export default function UploadModal({
       });
 
       // Construct ImageItem for active CDN
+      const targetBranch = branch.trim() || 'main';
       const cdnUrls: Record<string, string> = {};
       dynamicCdns.forEach(node => {
-        cdnUrls[node.id] = buildCdnUrl(node.prefix, repoData.owner, repoData.repo, branch, result.path);
+        cdnUrls[node.id] = buildCdnUrl(node.prefix, repoData.owner, repoData.repo, targetBranch, result.path);
       });
 
       const newImageItem: ImageItem = {
@@ -578,15 +579,20 @@ export default function UploadModal({
   // Active CDN node & generated URL
   const activeNode = dynamicCdns.find(n => n.id === selectedCdn) || dynamicCdns[0];
   const repoData = parseRepo();
+  const effectiveBranch = branch.trim() || 'main';
   const currentCdnUrl = uploadSuccessResult && repoData && activeNode
-    ? buildCdnUrl(activeNode.prefix, repoData.owner, repoData.repo, branch, uploadSuccessResult.filePath)
+    ? buildCdnUrl(activeNode.prefix, repoData.owner, repoData.repo, effectiveBranch, uploadSuccessResult.filePath)
     : '';
 
   // Copy helper
-  const handleCopy = (text: string, type: string) => {
-    navigator.clipboard.writeText(text);
-    setCopiedType(type);
-    setTimeout(() => setCopiedType(null), 1800);
+  const handleCopy = async (text: string, type: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedType(type);
+      setTimeout(() => setCopiedType(null), 1800);
+    } catch (err) {
+      console.error('Failed to copy to clipboard', err);
+    }
   };
 
   const samplePreviewName = getSamplePreviewName(useYmdhmsName, enablePrefix, namePrefix);
@@ -1243,7 +1249,7 @@ export default function UploadModal({
 
               {/* Error Alert */}
               {uploadError && (
-                <div className="bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/40 rounded-xl p-2.5 flex items-center gap-2 text-xs text-rose-600 dark:text-rose-450 animate-fade-in">
+                <div className="bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/40 rounded-xl p-2.5 flex items-center gap-2 text-xs text-rose-600 dark:text-rose-400 animate-fade-in">
                   <AlertCircle className="h-4 w-4 shrink-0 text-rose-500" />
                   <p className="truncate">{uploadError}</p>
                 </div>

@@ -9,7 +9,7 @@ export function fileToBase64(file: File): Promise<string> {
     reader.readAsDataURL(file);
     reader.onload = () => {
       const result = reader.result as string;
-      const base64 = result.includes(',') ? result.split(',')[1] : result;
+      const base64 = result.includes(',') ? result.split(',')[1] : '';
       resolve(base64);
     };
     reader.onerror = error => reject(error);
@@ -34,11 +34,11 @@ export async function fetchRepoDirectories(
 
   try {
     let targetBranch = branch || 'main';
-    let res = await fetch(`https://api.github.com/repos/${owner}/${repo}/git/trees/${targetBranch}?recursive=1`, {
+    let res = await fetch(`https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/trees/${encodeURIComponent(targetBranch)}?recursive=1`, {
       headers,
     });
     if (res.status === 404 && targetBranch === 'main') {
-      const altRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/git/trees/master?recursive=1`, { headers });
+      const altRes = await fetch(`https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/trees/master?recursive=1`, { headers });
       if (altRes.ok) {
         res = altRes;
         targetBranch = 'master';
@@ -46,7 +46,7 @@ export async function fetchRepoDirectories(
     }
     if (!res.ok) {
       // Fallback: try contents endpoint at root
-      const fallbackRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents?ref=${targetBranch}`, {
+      const fallbackRes = await fetch(`https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents?ref=${encodeURIComponent(targetBranch)}`, {
         headers,
       });
       if (!fallbackRes.ok) return [];
@@ -83,9 +83,9 @@ export interface UploadResult {
 }
 
 /**
- * Upload an image file to GitHub via Contents API
+ * Upload a file (image, script, JSON, CSS, etc.) to GitHub via Contents API
  */
-export async function uploadImageToGitHub({
+export async function uploadFileToGitHub({
   owner,
   repo,
   branch = 'main',
@@ -94,6 +94,7 @@ export async function uploadImageToGitHub({
   file,
   token,
   commitMessage,
+  overwrite = false,
 }: {
   owner: string;
   repo: string;
@@ -103,6 +104,7 @@ export async function uploadImageToGitHub({
   file: File;
   token: string;
   commitMessage?: string;
+  overwrite?: boolean;
 }): Promise<UploadResult> {
   if (!token.trim()) {
     throw new Error('MISSING_TOKEN');
@@ -112,15 +114,37 @@ export async function uploadImageToGitHub({
   const cleanFolder = folderPath.trim().replace(/^\/+|\/+$/g, '');
   const cleanFileName = fileName.trim().replace(/^\/+/, '');
   const fullPath = cleanFolder ? `${cleanFolder}/${cleanFileName}` : cleanFileName;
+  const encodedPath = fullPath.split('/').map(encodeURIComponent).join('/');
 
   const base64Content = await fileToBase64(file);
 
-  const url = `https://api.github.com/repos/${owner}/${repo}/contents/${fullPath}`;
+  const url = `https://api.github.com/repos/${owner}/${repo}/contents/${encodedPath}`;
   const headers: Record<string, string> = {
     'Accept': 'application/vnd.github.v3+json',
     'Content-Type': 'application/json',
     'Authorization': `token ${token.trim()}`,
   };
+
+  let existingSha: string | undefined;
+  if (overwrite) {
+    try {
+      const checkRes = await fetch(`${url}?ref=${encodeURIComponent(branch || 'main')}`, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/vnd.github.v3+json',
+          'Authorization': `token ${token.trim()}`,
+        },
+      });
+      if (checkRes.ok) {
+        const existingData = await checkRes.json();
+        if (existingData && typeof existingData.sha === 'string') {
+          existingSha = existingData.sha;
+        }
+      }
+    } catch {
+      // Ignore preflight check errors; PUT will report actual issue
+    }
+  }
 
   const message = commitMessage || `Upload ${cleanFileName} via PicDeliver`;
 
@@ -129,6 +153,9 @@ export async function uploadImageToGitHub({
     content: base64Content,
     branch: branch || 'main',
   };
+  if (existingSha) {
+    payload.sha = existingSha;
+  }
 
   const res = await fetch(url, {
     method: 'PUT',
@@ -164,10 +191,26 @@ export async function uploadImageToGitHub({
   return {
     path: data.content?.path || fullPath,
     sha: data.content?.sha || '',
-    size: data.content?.size || file.size,
-    downloadUrl: data.content?.download_url || `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${fullPath}`,
-    htmlUrl: data.content?.html_url || `https://github.com/${owner}/${repo}/blob/${branch}/${fullPath}`,
+    size: data.content?.size ?? file.size,
+    downloadUrl: data.content?.download_url || `https://raw.githubusercontent.com/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${encodeURIComponent(branch || 'main')}/${encodedPath}`,
+    htmlUrl: data.content?.html_url || `https://github.com/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/blob/${encodeURIComponent(branch || 'main')}/${encodedPath}`,
   };
+}
+
+/**
+ * Upload an image file to GitHub via Contents API
+ */
+export async function uploadImageToGitHub(params: {
+  owner: string;
+  repo: string;
+  branch?: string;
+  folderPath?: string;
+  fileName: string;
+  file: File;
+  token: string;
+  commitMessage?: string;
+}): Promise<UploadResult> {
+  return uploadFileToGitHub(params);
 }
 
 /**
@@ -195,7 +238,8 @@ export async function deleteImageFromGitHub({
   }
 
   const cleanPath = filePath.trim().replace(/^\/+/, '');
-  const url = `https://api.github.com/repos/${owner}/${repo}/contents/${cleanPath}`;
+  const encodedPath = cleanPath.split('/').map(encodeURIComponent).join('/');
+  const url = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${encodedPath}`;
   const headers: Record<string, string> = {
     'Accept': 'application/vnd.github.v3+json',
     'Content-Type': 'application/json',

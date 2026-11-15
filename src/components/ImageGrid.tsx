@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.5
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { 
   Trash2, 
@@ -25,8 +25,7 @@ interface ImageGridProps {
   onClear?: () => void;
   activeRepo?: GitHubRepoInfo | null;
   token?: string;
-  onTokenSave?: (token: string) => void;
-  onDeleteImage?: (deletedSha: string) => void;
+  onDeleteImage?: (deletedSha: string, deletedPath?: string) => void;
 }
 
 export default function ImageGrid({ 
@@ -37,7 +36,6 @@ export default function ImageGrid({
   onClear,
   activeRepo,
   token,
-  onTokenSave,
   onDeleteImage
 }: ImageGridProps) {
   const t = translations[lang];
@@ -46,7 +44,7 @@ export default function ImageGrid({
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const viewMode = 'list'; // Default exclusively to minimalist horizontal long cards
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(5); // Default to 5 items per user request
+  const itemsPerPage = 5;
   const [copiedAllText, setCopiedAllText] = useState<'url' | 'markdown' | 'html' | null>(null);
   const [individualCopiedId, setIndividualCopiedId] = useState<string | null>(null);
   const [activeZoomImage, setActiveZoomImage] = useState<ImageItem | null>(null);
@@ -58,31 +56,39 @@ export default function ImageGrid({
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleteSuccessToast, setDeleteSuccessToast] = useState<string | null>(null);
 
+  const safeDecode = (val: string) => {
+    try {
+      return decodeURIComponent(val);
+    } catch {
+      return val;
+    }
+  };
+
   const resolveImageRepoInfo = (img: ImageItem): { owner: string; repo: string; branch: string } | null => {
-    if (activeRepo && activeRepo.owner && activeRepo.repo) {
+    const anyUrl = Object.values(img.cdnUrls)[0] || '';
+    const jsdMatch = anyUrl.match(/\/gh\/([^\/]+)\/([^\/@]+)@([^\/]+)/);
+    if (jsdMatch) {
       return {
-        owner: activeRepo.owner,
-        repo: activeRepo.repo,
-        branch: activeRepo.branch || 'main',
+        owner: safeDecode(jsdMatch[1]),
+        repo: safeDecode(jsdMatch[2]),
+        branch: safeDecode(jsdMatch[3]),
       };
     }
     if (img.downloadUrl) {
       const match = img.downloadUrl.match(/raw\.githubusercontent\.com\/([^\/]+)\/([^\/]+)\/([^\/]+)/);
       if (match) {
         return {
-          owner: match[1],
-          repo: match[2],
-          branch: match[3],
+          owner: safeDecode(match[1]),
+          repo: safeDecode(match[2]),
+          branch: safeDecode(match[3]),
         };
       }
     }
-    const anyUrl = Object.values(img.cdnUrls)[0] || '';
-    const jsdMatch = anyUrl.match(/gh\/([^\/]+)\/([^\/@]+)@([^\/]+)/);
-    if (jsdMatch) {
+    if (activeRepo && activeRepo.owner && activeRepo.repo) {
       return {
-        owner: jsdMatch[1],
-        repo: jsdMatch[2],
-        branch: jsdMatch[3],
+        owner: activeRepo.owner,
+        repo: activeRepo.repo,
+        branch: activeRepo.branch || 'main',
       };
     }
     return null;
@@ -125,7 +131,7 @@ export default function ImageGrid({
       });
 
       // Notify parent to remove from local image list
-      onDeleteImage?.(deleteTarget.sha);
+      onDeleteImage?.(deleteTarget.sha, deleteTarget.path);
 
       const successName = deleteTarget.name;
       setDeleteTarget(null);
@@ -212,6 +218,29 @@ export default function ImageGrid({
 
   const totalPages = Math.ceil(filteredAndSortedImages.length / itemsPerPage) || 1;
 
+  // Keep currentPage within valid bounds when items are filtered or deleted
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
+
+  // Close zoom lightbox or delete confirmation on Escape
+  useEffect(() => {
+    if (!activeZoomImage && !deleteTarget) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (activeZoomImage) setActiveZoomImage(null);
+        else if (deleteTarget && !isDeleting) {
+          setDeleteTarget(null);
+          setDeleteError(null);
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [activeZoomImage, deleteTarget, isDeleting]);
+
   // Track image load errors
   const handleImageError = (sha: string) => {
     setImageErrors(prev => ({ ...prev, [sha]: true }));
@@ -266,9 +295,9 @@ export default function ImageGrid({
           <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
             <div>
               <h3 className="text-[13px] sm:text-sm font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5 sm:gap-2">
-                <i className="fa-solid fa-images text-black dark:text-slate-350 text-[16px] shrink-0"></i>
+                <i className="fa-solid fa-images text-black dark:text-slate-300 text-[16px] shrink-0"></i>
                 {t.resultsSubtitleLeft}
-                <span className="text-zinc-950 dark:text-emerald-450 font-extrabold font-mono">{images.length}</span>
+                <span className="text-zinc-950 dark:text-emerald-400 font-extrabold font-mono">{images.length}</span>
                 {t.resultsSubtitleRight}
               </h3>
               <p className="text-[9px] sm:text-[11px] text-slate-400 dark:text-slate-500 mt-1 leading-relaxed font-sans">
@@ -280,7 +309,7 @@ export default function ImageGrid({
               <button
                 type="button"
                 onClick={onClear}
-                className="w-full sm:w-auto justify-center inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs font-bold bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:text-rose-600 dark:hover:text-rose-450 hover:border-rose-200 dark:hover:border-rose-950/60 hover:bg-rose-50/50 dark:hover:bg-rose-950/10 transition-all shadow-xs cursor-pointer"
+                className="w-full sm:w-auto justify-center inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs font-bold bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:text-rose-600 dark:hover:text-rose-400 hover:border-rose-200 dark:hover:border-rose-950/60 hover:bg-rose-50/50 dark:hover:bg-rose-950/10 transition-all shadow-xs cursor-pointer"
               >
                 <Trash2 className="h-3.5 w-3.5 shrink-0" />
                 <span>{lang === 'zh' ? '清除检测数据' : 'Clear Detected Data'}</span>
@@ -315,7 +344,7 @@ export default function ImageGrid({
             >
               {copiedAllText === 'markdown' ? (
                 <>
-                  <i className="fa-solid fa-check text-[14px] text-black dark:text-emerald-450 font-bold"></i>
+                  <i className="fa-solid fa-check text-[14px] text-black dark:text-emerald-400 font-bold"></i>
                   <span>{t.copiedAllMD.substring(0, 10)}...</span>
                 </>
               ) : (
@@ -333,7 +362,7 @@ export default function ImageGrid({
             >
               {copiedAllText === 'html' ? (
                 <>
-                  <i className="fa-solid fa-check text-[14px] text-black dark:text-emerald-450 font-bold"></i>
+                  <i className="fa-solid fa-check text-[14px] text-black dark:text-emerald-400 font-bold"></i>
                   <span>{t.copiedAllHTML.substring(0, 10)}...</span>
                 </>
               ) : (
@@ -360,21 +389,21 @@ export default function ImageGrid({
                 value={searchTerm}
                 onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
                 placeholder={t.searchPlaceholder}
-                className="block w-full rounded-xl border border-slate-205 dark:border-slate-800 py-2.5 pl-9 pr-3 text-xs font-sans placeholder-slate-400 dark:placeholder-slate-500 focus:outline-hidden focus:border-slate-450 focus:ring-2 focus:ring-slate-100/60 bg-white dark:bg-[#090D16] text-slate-800 dark:text-slate-100"
+                className="block w-full rounded-xl border border-slate-200 dark:border-slate-800 py-2.5 pl-9 pr-3 text-xs font-sans placeholder-slate-400 dark:placeholder-slate-500 focus:outline-hidden focus:border-slate-400 focus:ring-2 focus:ring-slate-100/60 bg-white dark:bg-[#090D16] text-slate-800 dark:text-slate-100"
               />
             </div>
           </div>
 
           {/* Sorting Buttons */}
           <div className="flex items-center w-full sm:w-auto rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-100/60 dark:bg-[#090D16] p-1 shrink-0 md:ml-auto select-none" id="sort-controls-panel">
-            <b className="text-[10px] text-slate-400 dark:text-slate-550 px-2 font-bold uppercase tracking-wider hidden sm:block">{t.sortByLabel}</b>
+            <b className="text-[10px] text-slate-400 dark:text-slate-500 px-2 font-bold uppercase tracking-wider hidden sm:block">{t.sortByLabel}</b>
             <button
               onClick={() => handleSort('name')}
               className={`flex items-center justify-center gap-1.5 flex-1 sm:flex-none px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-all
                 ${sortBy === 'name' ? 'bg-white dark:bg-[#151E33] shadow-xs text-slate-900 dark:text-white font-extrabold' : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-300'}`}
             >
               <span>{t.sortName}</span>
-              <i className="fa-solid fa-sort text-[13px] text-black dark:text-slate-350 shrink-0"></i>
+              <i className="fa-solid fa-sort text-[13px] text-black dark:text-slate-300 shrink-0"></i>
             </button>
             <button
               onClick={() => handleSort('size')}
@@ -382,7 +411,7 @@ export default function ImageGrid({
                 ${sortBy === 'size' ? 'bg-white dark:bg-[#151E33] shadow-xs text-slate-900 dark:text-white font-extrabold' : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-300'}`}
             >
               <span>{t.sortSize}</span>
-              <i className="fa-solid fa-sort text-[13px] text-black dark:text-slate-350 shrink-0"></i>
+              <i className="fa-solid fa-sort text-[13px] text-black dark:text-slate-300 shrink-0"></i>
             </button>
           </div>
         </div>
@@ -393,7 +422,7 @@ export default function ImageGrid({
         <div className="bg-white dark:bg-[#151E33] border border-slate-100 dark:border-slate-800 rounded-3xl p-12 text-center shadow-md shadow-slate-200/40 dark:shadow-none hover:shadow-lg transition-all duration-300">
           <i className="fa-solid fa-triangle-exclamation text-amber-500 text-3xl mb-3"></i>
           <h4 className="text-sm font-bold text-slate-800 dark:text-slate-200">{t.noResultsTitle}</h4>
-          <p className="text-xs text-slate-400 dark:text-slate-550 max-w-sm mx-auto mt-1 leading-relaxed">
+          <p className="text-xs text-slate-400 dark:text-slate-500 max-w-sm mx-auto mt-1 leading-relaxed">
             {t.noResultsDesc}
           </p>
         </div>
@@ -406,8 +435,8 @@ export default function ImageGrid({
             
             return (
               <div 
-                key={img.sha} 
-                className="bg-white dark:bg-[#090D16]/65 border border-slate-100 dark:border-slate-850/80 rounded-2xl p-4 shadow-xs dark:shadow-none hover:shadow-md hover:-translate-y-0.5 hover:scale-[1.005] transition-all duration-300 flex flex-col md:flex-row md:items-center justify-between gap-4"
+                key={img.path} 
+                className="bg-white dark:bg-[#090D16]/65 border border-slate-100 dark:border-slate-800/80 rounded-2xl p-4 shadow-xs dark:shadow-none hover:shadow-md hover:-translate-y-0.5 hover:scale-[1.005] transition-all duration-300 flex flex-col md:flex-row md:items-center justify-between gap-4"
               >
                 {/* Left side: Thumbnail + File details */}
                 <div className="flex items-center gap-3.5 min-w-0 flex-1">
@@ -439,12 +468,12 @@ export default function ImageGrid({
                       {img.name}
                     </h4>
                     
-                    <div className="flex items-center gap-2 mt-1 text-[11px] text-slate-400 dark:text-slate-450 font-medium truncate select-all">
+                    <div className="flex items-center gap-2 mt-1 text-[11px] text-slate-400 dark:text-slate-400 font-medium truncate select-all">
                       <span className="truncate hover:text-slate-600 dark:hover:text-slate-300" title={img.path}>{img.path}</span>
-                      <span className="text-slate-300 dark:text-slate-650 font-bold">•</span>
+                      <span className="text-slate-300 dark:text-slate-600 font-bold">•</span>
                       <span>{formatBytes(img.size, 1)}</span>
-                      <span className="text-slate-300 dark:text-slate-650 font-bold">•</span>
-                      <span className="uppercase font-mono text-[10px] bg-slate-100 dark:bg-[#121826]/85 border border-slate-150/10 rounded px-1.5 py-0.5 text-slate-500 dark:text-slate-450 font-bold">
+                      <span className="text-slate-300 dark:text-slate-600 font-bold">•</span>
+                      <span className="uppercase font-mono text-[10px] bg-slate-100 dark:bg-[#121826]/85 border border-slate-200/20 rounded px-1.5 py-0.5 text-slate-500 dark:text-slate-400 font-bold">
                         {img.name.split('.').pop() || 'IMG'}
                       </span>
                     </div>
@@ -461,7 +490,7 @@ export default function ImageGrid({
                       className={`px-2 py-2 sm:px-3 sm:py-1.5 rounded-xl text-[11px] sm:text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 border
                         ${individualCopiedId === `${img.sha}-url`
                           ? 'bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-950/20 dark:border-emerald-800 dark:text-emerald-400 font-extrabold'
-                          : 'bg-slate-50 border-transparent hover:border-slate-200 text-slate-700 hover:bg-slate-100 dark:bg-[#121826]/60 dark:border-slate-750 dark:text-slate-300 dark:hover:bg-[#121826]'
+                          : 'bg-slate-50 border-transparent hover:border-slate-200 text-slate-700 hover:bg-slate-100 dark:bg-[#121826]/60 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-[#121826]'
                         }`}
                     >
                       {individualCopiedId === `${img.sha}-url` ? (
@@ -483,7 +512,7 @@ export default function ImageGrid({
                       className={`px-2 py-2 sm:px-3 sm:py-1.5 rounded-xl text-[11px] sm:text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 border
                         ${individualCopiedId === `${img.sha}-markdown`
                           ? 'bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-950/20 dark:border-emerald-800 dark:text-emerald-400 font-extrabold'
-                          : 'bg-slate-50 border-transparent hover:border-slate-200 text-slate-700 hover:bg-slate-100 dark:bg-[#121826]/60 dark:border-slate-750 dark:text-slate-300 dark:hover:bg-[#121826]'
+                          : 'bg-slate-50 border-transparent hover:border-slate-200 text-slate-700 hover:bg-slate-100 dark:bg-[#121826]/60 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-[#121826]'
                         }`}
                     >
                       {individualCopiedId === `${img.sha}-markdown` ? (
@@ -505,7 +534,7 @@ export default function ImageGrid({
                       className={`px-2 py-2 sm:px-3 sm:py-1.5 rounded-xl text-[11px] sm:text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 border
                         ${individualCopiedId === `${img.sha}-html`
                           ? 'bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-950/20 dark:border-emerald-800 dark:text-emerald-400 font-extrabold'
-                          : 'bg-slate-50 border-transparent hover:border-slate-200 text-slate-700 hover:bg-slate-100 dark:bg-[#121826]/60 dark:border-slate-750 dark:text-slate-300 dark:hover:bg-[#121826]'
+                          : 'bg-slate-50 border-transparent hover:border-slate-200 text-slate-700 hover:bg-slate-100 dark:bg-[#121826]/60 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-[#121826]'
                         }`}
                     >
                       {individualCopiedId === `${img.sha}-html` ? (
@@ -578,14 +607,14 @@ export default function ImageGrid({
             
             return (
               <div 
-                key={img.sha} 
-                className="bg-white dark:bg-[#090D16]/65 border border-slate-100 dark:border-slate-850/80 rounded-2xl p-4 shadow-xs dark:shadow-none hover:shadow-md hover:-translate-y-0.5 hover:scale-[1.01] transition-all duration-300 flex flex-col justify-between gap-3"
+                key={img.path} 
+                className="bg-white dark:bg-[#090D16]/65 border border-slate-100 dark:border-slate-800/80 rounded-2xl p-4 shadow-xs dark:shadow-none hover:shadow-md hover:-translate-y-0.5 hover:scale-[1.01] transition-all duration-300 flex flex-col justify-between gap-3"
               >
                 {/* Thumbnail and title row */}
                 <div className="flex items-center gap-3">
                   <div className="w-12 h-12 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-[#151E33] flex-shrink-0 flex items-center justify-center overflow-hidden hover:ring-2 hover:ring-slate-200/60 transition-all shrink-0">
                     {hasError ? (
-                      <i className="fa-solid fa-triangle-exclamation text-amber-550 text-xs"></i>
+                      <i className="fa-solid fa-triangle-exclamation text-amber-500 text-xs"></i>
                     ) : (
                       <img
                         src={cdnUrl}
@@ -606,14 +635,14 @@ export default function ImageGrid({
                     >
                       {img.name}
                     </h4>
-                    <p className="text-[10px] text-slate-400 dark:text-slate-450 font-mono truncate mt-0.5" title={img.path}>{img.path}</p>
+                    <p className="text-[10px] text-slate-400 dark:text-slate-400 font-mono truncate mt-0.5" title={img.path}>{img.path}</p>
                   </div>
                 </div>
 
                 {/* File size information badge */}
-                <div className="flex items-center gap-2 text-[10.5px] text-slate-450 dark:text-slate-400 font-medium">
+                <div className="flex items-center gap-2 text-[10.5px] text-slate-400 dark:text-slate-400 font-medium">
                   <span>{formatBytes(img.size, 1)}</span>
-                  <span className="text-slate-300 dark:text-slate-650 font-bold">•</span>
+                  <span className="text-slate-300 dark:text-slate-600 font-bold">•</span>
                   <span className="uppercase font-mono text-[9px] bg-slate-50 dark:bg-[#151E33] rounded px-1.5 py-0.5 text-slate-500 dark:text-slate-400 font-bold border border-slate-100 dark:border-slate-800">
                     {img.name.split('.').pop() || 'IMG'}
                   </span>
@@ -648,8 +677,8 @@ export default function ImageGrid({
                       onClick={() => copyToClipboard(`![${img.name}](${cdnUrl})`, 'markdown', false, img.sha)}
                       className={`w-7.5 h-7.5 rounded-lg border flex items-center justify-center transition-all cursor-pointer
                         ${individualCopiedId === `${img.sha}-markdown`
-                          ? 'bg-emerald-55 border-emerald-150 text-emerald-700 dark:bg-emerald-950/20 dark:border-emerald-800 dark:text-emerald-400 font-bold'
-                          : 'bg-white border-slate-200 dark:bg-[#151E33] dark:border-slate-800 text-slate-700 dark:text-slate-350 hover:bg-slate-50 dark:hover:bg-slate-900/60'
+                          ? 'bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-950/20 dark:border-emerald-800 dark:text-emerald-400 font-bold'
+                          : 'bg-white border-slate-200 dark:bg-[#151E33] dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900/60'
                         }`}
                       title={`${t.mdCellBadge} Syntax`}
                     >
@@ -663,7 +692,7 @@ export default function ImageGrid({
                     {/* View Magnify button */}
                     <button
                       onClick={() => setActiveZoomImage(img)}
-                      className="w-7.5 h-7.5 rounded-lg border border-slate-205 dark:border-slate-800 bg-white dark:bg-[#151E33] text-slate-705 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900/60 flex items-center justify-center transition-all cursor-pointer"
+                      className="w-7.5 h-7.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#151E33] text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900/60 flex items-center justify-center transition-all cursor-pointer"
                       title={t.previewTitle}
                     >
                       <i className="fa-solid fa-magnifying-glass-plus text-[11px]"></i>
@@ -704,10 +733,10 @@ export default function ImageGrid({
             <button
               onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
               disabled={currentPage === 1}
-              className={`h-8 w-8 rounded-lg flex items-center justify-center border border-slate-205 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-[#090D16] transition-all focus:outline-hidden cursor-pointer
+              className={`h-8 w-8 rounded-lg flex items-center justify-center border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-[#090D16] transition-all focus:outline-hidden cursor-pointer
                 ${currentPage === 1 ? 'opacity-40 cursor-not-allowed hover:bg-transparent' : ''}`}
             >
-              <i className="fa-solid fa-chevron-left text-[12px] text-black dark:text-slate-350 font-bold"></i>
+              <i className="fa-solid fa-chevron-left text-[12px] text-black dark:text-slate-300 font-bold"></i>
             </button>
             
             <div className="flex items-center gap-1 text-xs">
@@ -725,7 +754,7 @@ export default function ImageGrid({
                         className={`h-8 w-8 rounded-lg font-bold flex items-center justify-center border cursor-pointer transition-all
                           ${isCurrent 
                             ? 'bg-slate-900 border-slate-900 text-white shadow-xs dark:bg-emerald-500 dark:text-slate-950 dark:border-emerald-500 font-extrabold' 
-                            : 'bg-white dark:bg-[#090D16] border-slate-205 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900/60'
+                            : 'bg-white dark:bg-[#090D16] border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900/60'
                           }`}
                       >
                         {number}
@@ -738,7 +767,7 @@ export default function ImageGrid({
             <button
               onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
               disabled={currentPage === totalPages}
-              className={`h-8 w-8 rounded-lg flex items-center justify-center border border-slate-205 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-[#090D16] transition-all focus:outline-hidden cursor-pointer
+              className={`h-8 w-8 rounded-lg flex items-center justify-center border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-[#090D16] transition-all focus:outline-hidden cursor-pointer
                 ${currentPage === totalPages ? 'opacity-40 cursor-not-allowed hover:bg-transparent' : ''}`}
             >
               <i className="fa-solid fa-chevron-right text-[12px] text-black font-bold"></i>
@@ -805,7 +834,7 @@ export default function ImageGrid({
               </div>
 
               {/* Dynamic CDN path box */}
-              <div className="space-y-2 pt-3 border-t border-slate-150">
+              <div className="space-y-2 pt-3 border-t border-slate-200">
                 <label className="text-[10.5px] font-bold text-slate-500 flex items-center gap-1.5 uppercase tracking-wide">
                   {t.previewCurrentCdn} ({selectedCdnName})
                 </label>

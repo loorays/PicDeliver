@@ -9,9 +9,10 @@ import GitHubConfigCard from './components/GitHubConfigCard';
 import CDNSelector from './components/CDNSelector';
 import ImageGrid from './components/ImageGrid';
 import UploadModal from './components/UploadModal';
+import UploadFileModal from './components/UploadFileModal';
 import { GitHubRepoInfo, ImageItem, CDNType, ApiStatus, CDNNode } from './types';
 import { CDN_NODES, buildCdnUrl, isImageFile } from './utils';
-import { AlertCircle, ShieldAlert, Image as ImageIcon, Key, HelpCircle, Info, Globe, FolderDown, Upload } from 'lucide-react';
+import { AlertCircle, ShieldAlert, Image as ImageIcon, Key, FolderDown } from 'lucide-react';
 import { translations, Language } from './translations';
 
 export default function App() {
@@ -22,7 +23,8 @@ export default function App() {
 
   // Localization choice state
   const [lang, setLang] = useState<Language>(() => {
-    return (localStorage.getItem('gh_cdn_lang') as Language) || 'zh';
+    const stored = localStorage.getItem('gh_cdn_lang');
+    return stored === 'en' || stored === 'zh' ? stored : 'zh';
   });
 
   const t = translations[lang];
@@ -30,6 +32,7 @@ export default function App() {
   const [images, setImages] = useState<ImageItem[]>([]);
   const [selectedCdn, setSelectedCdn] = useState<CDNType>('jsdmirror1');
   const [isUploadOpen, setIsUploadOpen] = useState(false);
+  const [isFileUploadOpen, setIsFileUploadOpen] = useState(false);
   const [pastedFile, setPastedFile] = useState<File | null>(null);
   
   const [dynamicCdns, setDynamicCdns] = useState<CDNNode[]>(() => {
@@ -133,7 +136,7 @@ export default function App() {
   };
 
   // Sync CDN node name for descriptions
-  const selectedCdnName = dynamicCdns.find(n => n.id === selectedCdn)?.name || 'Gcore 专属';
+  const selectedCdnName = dynamicCdns.find(n => n.id === selectedCdn)?.name || dynamicCdns[0]?.name || 'JsdMirror1';
 
   const handleLanguageChange = (newLang: Language) => {
     setLang(newLang);
@@ -169,7 +172,7 @@ export default function App() {
   useEffect(() => {
     const handleGlobalPaste = (e: ClipboardEvent) => {
       // If upload modal is already open, it handles its own paste
-      if (isUploadOpen) return;
+      if (isUploadOpen || isFileUploadOpen) return;
 
       // Don't intercept if user is typing text into an input or textarea
       const target = e.target as HTMLElement | null;
@@ -197,7 +200,7 @@ export default function App() {
 
     window.addEventListener('paste', handleGlobalPaste);
     return () => window.removeEventListener('paste', handleGlobalPaste);
-  }, [isUploadOpen]);
+  }, [isUploadOpen, isFileUploadOpen]);
 
   const executeFetch = async (repoInfo: GitHubRepoInfo, recursive: boolean, currentToken: string) => {
     setApiStatus(prev => ({ ...prev, loading: true, error: null }));
@@ -218,7 +221,7 @@ export default function App() {
       // If no branch was explicit in path tree, look up the repo's default_branch
       if (!branchName) {
         try {
-          const repoRes = await fetch(`https://api.github.com/repos/${repoInfo.owner}/${repoInfo.repo}`, { headers });
+          const repoRes = await fetch(`https://api.github.com/repos/${encodeURIComponent(repoInfo.owner)}/${encodeURIComponent(repoInfo.repo)}`, { headers });
           updateRateLimits(repoRes);
           
           if (repoRes.status === 404) {
@@ -243,6 +246,9 @@ export default function App() {
       }
 
       const cleanSubPath = (repoInfo.path || '').replace(/^\/+|\/+$/g, '');
+      const encodedSubPath = cleanSubPath
+        ? cleanSubPath.split('/').filter(Boolean).map(encodeURIComponent).join('/')
+        : '';
       let parsedWithBranch = { ...repoInfo, branch: branchName, path: cleanSubPath };
       setActiveRepo(parsedWithBranch);
 
@@ -250,15 +256,18 @@ export default function App() {
 
       // Helper to fetch contents or tree for a given branch
       const fetchAttempt = async (targetBranch: string) => {
+        const encOwner = encodeURIComponent(parsedWithBranch.owner);
+        const encRepo = encodeURIComponent(parsedWithBranch.repo);
+        const encBranch = encodeURIComponent(targetBranch);
         if (recursive) {
-          const treeUrl = `https://api.github.com/repos/${parsedWithBranch.owner}/${parsedWithBranch.repo}/git/trees/${targetBranch}?recursive=1`;
+          const treeUrl = `https://api.github.com/repos/${encOwner}/${encRepo}/git/trees/${encBranch}?recursive=1`;
           const treeRes = await fetch(treeUrl, { headers });
           updateRateLimits(treeRes);
           return treeRes;
         } else {
-          const contentsUrl = cleanSubPath 
-            ? `https://api.github.com/repos/${parsedWithBranch.owner}/${parsedWithBranch.repo}/contents/${cleanSubPath}?ref=${targetBranch}`
-            : `https://api.github.com/repos/${parsedWithBranch.owner}/${parsedWithBranch.repo}/contents?ref=${targetBranch}`;
+          const contentsUrl = encodedSubPath 
+            ? `https://api.github.com/repos/${encOwner}/${encRepo}/contents/${encodedSubPath}?ref=${encBranch}`
+            : `https://api.github.com/repos/${encOwner}/${encRepo}/contents?ref=${encBranch}`;
           const contentsRes = await fetch(contentsUrl, { headers });
           updateRateLimits(contentsRes);
           return contentsRes;
@@ -445,13 +454,14 @@ export default function App() {
       cdnUrls[node.id] = buildCdnUrl(node.prefix, repo.owner, repo.repo, repo.branch, path);
     });
 
+    const encodedPath = path.replace(/^\/+/, '').split('/').filter(Boolean).map(encodeURIComponent).join('/');
     return {
       name,
       path,
       size,
       sha,
       cdnUrls,
-      downloadUrl: `https://raw.githubusercontent.com/${repo.owner}/${repo.repo}/${repo.branch}/${path}`
+      downloadUrl: `https://raw.githubusercontent.com/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}/${encodeURIComponent(repo.branch)}/${encodedPath}`
     };
   };
 
@@ -466,6 +476,7 @@ export default function App() {
         lang={lang} 
         onLanguageChange={handleLanguageChange} 
         onOpenUpload={() => setIsUploadOpen(true)}
+        onOpenFileUpload={() => setIsFileUploadOpen(true)}
       />
 
       <main className="flex-1 mx-auto max-w-7xl w-full px-4 sm:px-6 lg:px-8 py-8">
@@ -486,6 +497,7 @@ export default function App() {
               recursive={recursive}
               onRecursiveChange={setRecursive}
               onOpenUpload={() => setIsUploadOpen(true)}
+              onOpenFileUpload={() => setIsFileUploadOpen(true)}
             />
 
             {/* Accent CDN Core Selector - placed centrally inside work flow */}
@@ -504,11 +516,11 @@ export default function App() {
             {/* Localized Project Stats - Super compact icon-powered horizontal bar */}
             <div className="bg-white dark:bg-[#151E33] border border-slate-100 dark:border-slate-800/85 rounded-3xl p-5 flex flex-wrap items-center justify-between gap-4 text-xs text-slate-500 shadow-md shadow-slate-200/40 dark:shadow-none hover:shadow-lg hover:-translate-y-0.5 transition-all duration-300" id="project-stats-card">
               <div className="flex items-center gap-1.5 font-bold text-slate-900 dark:text-slate-100" title={t.statsFiles}>
-                <ImageIcon className="h-5 w-5 text-slate-900 dark:text-slate-350" />
-                <span>{images.length} <span className="text-slate-450 dark:text-slate-400 font-normal">{lang === 'zh' ? '张图片' : 'Assets'}</span></span>
+                <ImageIcon className="h-5 w-5 text-slate-900 dark:text-slate-300" />
+                <span>{images.length} <span className="text-slate-400 dark:text-slate-400 font-normal">{lang === 'zh' ? '张图片' : 'Assets'}</span></span>
               </div>
               <div className="flex items-center gap-1.5 font-bold text-slate-900 dark:text-slate-100" title={t.statsSize}>
-                <FolderDown className="h-5 w-5 text-slate-900 dark:text-slate-350" />
+                <FolderDown className="h-5 w-5 text-slate-900 dark:text-slate-300" />
                 <span>{formattedTotalSize}</span>
               </div>
               <div className={`flex items-center gap-1.5 font-bold ${images.length > 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-slate-500 dark:text-slate-500'}`}>
@@ -529,19 +541,19 @@ export default function App() {
 
             {/* API rate limit indicator card */}
             {apiStatus.rateLimitRemaining !== null && (
-              <div className="bg-white dark:bg-[#151E33] border border-slate-100 dark:border-slate-800/85 rounded-2xl p-4 flex flex-col gap-2 shadow-md shadow-slate-200/30 dark:shadow-none hover:shadow-lg transition-all duration-350 animate-fade-in" id="api-rate-limit-card">
+              <div className="bg-white dark:bg-[#151E33] border border-slate-100 dark:border-slate-800/85 rounded-2xl p-4 flex flex-col gap-2 shadow-md shadow-slate-200/30 dark:shadow-none hover:shadow-lg transition-all duration-300 animate-fade-in" id="api-rate-limit-card">
                 <div className="flex items-center justify-between gap-4 w-full">
                   <div className="flex items-center gap-2 text-[11px]">
                     <span className="flex h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-                    <span className="text-slate-400 dark:text-slate-555 font-normal tracking-tight">{t.quotaLabel}</span>
+                    <span className="text-slate-400 dark:text-slate-500 font-normal tracking-tight">{t.quotaLabel}</span>
                   </div>
-                  <span className="font-extrabold text-slate-705 dark:text-slate-350 font-mono text-[11px] bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded shrink-0">
+                  <span className="font-extrabold text-slate-700 dark:text-slate-300 font-mono text-[11px] bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded shrink-0">
                     {apiStatus.rateLimitRemaining} / {apiStatus.rateLimitLimit}
                   </span>
                 </div>
                 
                 {apiStatus.rateLimitRemaining < 15 && (
-                  <div className="text-[10px] bg-amber-50 dark:bg-amber-955/20 text-amber-705 dark:text-amber-400 p-2.5 rounded-lg font-bold flex items-start gap-1.5 border border-amber-100/50 dark:border-amber-900/30 w-full leading-normal">
+                  <div className="text-[10px] bg-amber-50 dark:bg-amber-950/20 text-amber-700 dark:text-amber-400 p-2.5 rounded-lg font-bold flex items-start gap-1.5 border border-amber-100/50 dark:border-amber-900/30 w-full leading-normal">
                     <ShieldAlert className="h-3.5 w-3.5 text-amber-500 shrink-0 mt-0.5" />
                     <span className="break-all">{t.quotaWarning}</span>
                   </div>
@@ -555,12 +567,12 @@ export default function App() {
 
             {/* Request Error Feedback box with specialized rate limits unblock */}
             {apiStatus.error && (apiStatus.error === 'RATELIMIT_ERROR' || apiStatus.error.toLowerCase().includes('rate limit') || apiStatus.error.toLowerCase().includes('limit exceeded')) ? (
-              <div className="bg-amber-50/70 rounded-3xl border border-amber-150 p-6 space-y-4 animate-fade-in" id="error-feedback-container">
+              <div className="bg-amber-50/70 rounded-3xl border border-amber-200 p-6 space-y-4 animate-fade-in" id="error-feedback-container">
                 <div className="flex gap-3.5">
                   <ShieldAlert className="h-6 w-6 text-amber-600 shrink-0 mt-0.5 animate-pulse" />
                   <div>
                     <h3 className="text-sm font-bold text-amber-900">{t.quotaRateTitle}</h3>
-                    <p className="text-xs text-amber-850 mt-1 leading-relaxed">
+                    <p className="text-xs text-amber-800 mt-1 leading-relaxed">
                       {t.quotaRateDesc}
                     </p>
                   </div>
@@ -576,7 +588,7 @@ export default function App() {
                       href="https://github.com/settings/tokens"
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-xs text-slate-705 hover:text-slate-900 font-bold flex items-center gap-0.5 underline decoration-slate-200 decoration-2 underline-offset-4 cursor-pointer"
+                      className="text-xs text-slate-700 hover:text-slate-900 font-bold flex items-center gap-0.5 underline decoration-slate-200 decoration-2 underline-offset-4 cursor-pointer"
                     >
                       {t.quotaRateGetToken}
                     </a>
@@ -588,7 +600,7 @@ export default function App() {
                       value={token}
                       onChange={(e) => handleTokenChange(e.target.value)}
                       placeholder={t.quotaRatePlaceholder}
-                      className="flex-1 rounded-xl border border-slate-205 py-2.5 px-3.5 text-xs font-mono focus:outline-hidden focus:border-slate-400 focus:ring-4 focus:ring-slate-100 bg-slate-50/20"
+                      className="flex-1 rounded-xl border border-slate-200 py-2.5 px-3.5 text-xs font-mono focus:outline-hidden focus:border-slate-400 focus:ring-4 focus:ring-slate-100 bg-slate-50/20"
                     />
                     <button
                       type="button"
@@ -627,15 +639,16 @@ export default function App() {
                 onClear={handleClearResults}
                 activeRepo={activeRepo}
                 token={token}
-                onTokenSave={handleTokenChange}
-                onDeleteImage={(deletedSha) => {
-                  setImages(prev => prev.filter(img => img.sha !== deletedSha));
+                onDeleteImage={(deletedSha, deletedPath) => {
+                  setImages(prev => prev.filter(img =>
+                    deletedPath ? img.path !== deletedPath : img.sha !== deletedSha
+                  ));
                 }}
               />
             ) : !apiStatus.loading && !apiStatus.error && (
               /* Empty state placeholder card */
               <div className="bg-white dark:bg-[#151E33] border border-slate-100 dark:border-slate-800/85 rounded-[1.75rem] shadow-md shadow-slate-200/40 dark:shadow-none hover:shadow-lg transition-all duration-300 p-10 text-center" id="empty-state-container">
-                <div className="h-12 w-12 rounded-full bg-slate-50 dark:bg-slate-800 text-slate-400 dark:text-slate-350 flex items-center justify-center mx-auto mb-4 border border-slate-100 dark:border-slate-750">
+                <div className="h-12 w-12 rounded-full bg-slate-50 dark:bg-slate-800 text-slate-400 dark:text-slate-300 flex items-center justify-center mx-auto mb-4 border border-slate-100 dark:border-slate-700">
                   <ImageIcon className="h-6 w-6 text-slate-500 dark:text-slate-400" />
                 </div>
                 <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200">{lang === 'zh' ? '等待提取转换' : 'Ready for CDN conversion'}</h3>
@@ -664,7 +677,7 @@ export default function App() {
       </main>
 
       {/* Footer layout */}
-      <footer className="border-t border-slate-100 dark:border-slate-800/80 bg-white dark:bg-[#090D16] py-6 mt-12 text-center text-xs text-slate-450 dark:text-slate-500 font-sans transition-colors duration-300">
+      <footer className="border-t border-slate-100 dark:border-slate-800/80 bg-white dark:bg-[#090D16] py-6 mt-12 text-center text-xs text-slate-400 dark:text-slate-500 font-sans transition-colors duration-300">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 space-y-1.5 leading-normal">
           <p>{t.footerText}</p>
         </div>
@@ -680,13 +693,25 @@ export default function App() {
         lang={lang}
         selectedCdn={selectedCdn}
         dynamicCdns={dynamicCdns}
-        onSelectCdn={setSelectedCdn}
         initialRepoInfo={activeRepo}
         initialToken={token}
         onTokenSave={handleTokenChange}
         onImageUploaded={handleImageUploaded}
         initialFile={pastedFile}
         onClearInitialFile={() => setPastedFile(null)}
+      />
+
+      {/* Upload Restricted Static File Modal */}
+      <UploadFileModal
+        isOpen={isFileUploadOpen}
+        onClose={() => setIsFileUploadOpen(false)}
+        lang={lang}
+        selectedCdn={selectedCdn}
+        dynamicCdns={dynamicCdns}
+        onSelectCdn={setSelectedCdn}
+        initialRepoInfo={activeRepo}
+        initialToken={token}
+        onTokenSave={handleTokenChange}
       />
     </div>
   );

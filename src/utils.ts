@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { GitHubRepoInfo, ImageItem, CDNType, CDNNode } from './types';
+import { GitHubRepoInfo, CDNNode } from './types';
 
 export const CDN_NODES: CDNNode[] = [
   {
@@ -56,16 +56,119 @@ export const CDN_NODES: CDNNode[] = [
   }
 ];
 
-const IMAGE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp', '.ico', '.tiff', '.heic'];
+const IMAGE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.avif', '.svg', '.bmp', '.ico', '.tiff', '.heic'];
+
+export function getFileExtension(filename: string): string {
+  const cleanName = filename.trim().split('?')[0].split('#')[0];
+  const lastSlash = Math.max(cleanName.lastIndexOf('/'), cleanName.lastIndexOf('\\'));
+  const baseName = lastSlash >= 0 ? cleanName.substring(lastSlash + 1) : cleanName;
+  const dotIdx = baseName.lastIndexOf('.');
+  if (dotIdx <= 0) return '';
+  return baseName.substring(dotIdx).toLowerCase();
+}
 
 export function isImageFile(filename: string): boolean {
-  const lowerFile = filename.toLowerCase();
-  return IMAGE_EXTENSIONS.some(ext => lowerFile.endsWith(ext));
+  const ext = getFileExtension(filename);
+  return ext !== '' && IMAGE_EXTENSIONS.includes(ext);
+}
+
+export interface AllowedFileCategory {
+  key: string;
+  labelZh: string;
+  labelEn: string;
+  exts: string[];
+}
+
+export const ALLOWED_FILE_CATEGORIES: AllowedFileCategory[] = [
+  {
+    key: 'scripts',
+    labelZh: '脚本代码',
+    labelEn: 'Scripts',
+    exts: ['.js', '.mjs', '.cjs'],
+  },
+  {
+    key: 'styles',
+    labelZh: '样式表',
+    labelEn: 'Styles',
+    exts: ['.css', '.scss', '.less'],
+  },
+  {
+    key: 'webdata',
+    labelZh: 'JSON / 网页',
+    labelEn: 'JSON & Web',
+    exts: ['.json', '.map', '.html', '.htm'],
+  },
+  {
+    key: 'fonts',
+    labelZh: '字体',
+    labelEn: 'Fonts',
+    exts: ['.woff', '.woff2', '.ttf', '.otf', '.eot'],
+  },
+  {
+    key: 'audio',
+    labelZh: '音频',
+    labelEn: 'Audio',
+    exts: ['.mp3', '.wav', '.ogg', '.m4a', '.flac'],
+  },
+  {
+    key: 'video',
+    labelZh: '视频',
+    labelEn: 'Video',
+    exts: ['.mp4', '.webm', '.ogv'],
+  },
+  {
+    key: 'docs',
+    labelZh: '文档 / 文本 / 配置',
+    labelEn: 'Docs & Config',
+    exts: ['.pdf', '.txt', '.md', '.xml', '.yaml', '.yml', '.csv', '.tsv', '.toml'],
+  },
+  {
+    key: 'binary',
+    labelZh: 'WASM / 压缩包',
+    labelEn: 'WASM & Archive',
+    exts: ['.wasm', '.zip', '.gz', '.br'],
+  },
+];
+
+export const ALLOWED_FILE_EXTENSIONS: string[] = ALLOWED_FILE_CATEGORIES.flatMap(c => c.exts);
+
+export const TEXT_VIEWABLE_EXTENSIONS = new Set<string>([
+  '.js', '.mjs', '.cjs',
+  '.css', '.scss', '.less',
+  '.json', '.map',
+  '.html', '.htm',
+  '.txt', '.md', '.xml', '.yaml', '.yml',
+  '.csv', '.tsv', '.toml',
+]);
+
+export function isAllowedUploadFile(filename: string): boolean {
+  const ext = getFileExtension(filename);
+  return ext !== '' && ALLOWED_FILE_EXTENSIONS.includes(ext);
+}
+
+export function isTextViewableFile(filename: string): boolean {
+  return TEXT_VIEWABLE_EXTENSIONS.has(getFileExtension(filename));
+}
+
+export function isAudioFile(filename: string): boolean {
+  return ['.mp3', '.wav', '.ogg', '.m4a', '.flac'].includes(getFileExtension(filename));
+}
+
+export function isVideoFile(filename: string): boolean {
+  return ['.mp4', '.webm', '.ogv'].includes(getFileExtension(filename));
+}
+
+function safeDecodeSegment(seg: string): string {
+  try {
+    return decodeURIComponent(seg);
+  } catch {
+    return seg;
+  }
 }
 
 export function parseGitHubUrl(url: string): GitHubRepoInfo | null {
   if (!url) return null;
-  let cleanUrl = url.trim();
+  let cleanUrl = url.trim().split('?')[0].split('#')[0];
 
   // Strip protocol if present
   if (cleanUrl.startsWith('http://')) cleanUrl = cleanUrl.substring(7);
@@ -77,31 +180,37 @@ export function parseGitHubUrl(url: string): GitHubRepoInfo | null {
     cleanUrl = cleanUrl.substring('github.com/'.length);
   }
 
-  // Remove trailing slashes
+  // Remove trailing slashes and .git suffix
   cleanUrl = cleanUrl.replace(/\/+$/, '');
 
-  const segments = cleanUrl.split('/');
+  const segments = cleanUrl.split('/').filter(Boolean);
   if (segments.length < 2) return null;
 
-  const owner = segments[0];
-  const repo = segments[1];
+  const owner = safeDecodeSegment(segments[0]);
+  const repo = safeDecodeSegment(segments[1]).replace(/\.git$/i, '');
+  if (!owner || !repo) return null;
 
   let branch = '';
   let path = '';
 
   // E.g. owner/repo/tree/branch/path... OR owner/repo/blob/branch/path...
   if (segments.length >= 4 && (segments[2] === 'tree' || segments[2] === 'blob')) {
-    branch = segments[3];
-    path = segments.slice(4).join('/');
+    branch = safeDecodeSegment(segments[3]);
+    path = segments.slice(4).map(safeDecodeSegment).join('/');
   }
 
   return { owner, repo, branch, path };
 }
 
 export function buildCdnUrl(nodePrefix: string, owner: string, repo: string, branch: string, filePath: string): string {
-  // Ensure we don't have double slashes
+  const cleanPrefix = nodePrefix.trim().replace(/\/+$/, '');
   const cleanPath = filePath.replace(/^\/+/, '');
-  return `${nodePrefix}/${owner}/${repo}@${branch}/${cleanPath}`;
+  const encodedPath = cleanPath
+    .split('/')
+    .filter(Boolean)
+    .map(seg => encodeURIComponent(safeDecodeSegment(seg)))
+    .join('/');
+  return `${cleanPrefix}/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}@${branch || 'main'}/${encodedPath}`;
 }
 
 export function formatBytes(bytes: number, decimals = 2): string {

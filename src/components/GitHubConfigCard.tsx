@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Search, Link, ShieldAlert, Key, FolderDown, HelpCircle, Check, Info, Upload } from 'lucide-react';
+import { Search, ShieldAlert, Key, FolderDown, HelpCircle, Check, Info, Upload, FileUp } from 'lucide-react';
 import { parseGitHubUrl } from '../utils';
 import { GitHubRepoInfo } from '../types';
 import { translations, Language } from '../translations';
@@ -20,6 +20,7 @@ interface GitHubConfigCardProps {
   recursive: boolean;
   onRecursiveChange: (val: boolean) => void;
   onOpenUpload?: () => void;
+  onOpenFileUpload?: () => void;
 }
 
 export default function GitHubConfigCard({ 
@@ -32,7 +33,8 @@ export default function GitHubConfigCard({
   lang,
   recursive,
   onRecursiveChange,
-  onOpenUpload
+  onOpenUpload,
+  onOpenFileUpload
 }: GitHubConfigCardProps) {
   const t = translations[lang];
   const [urlInput, setUrlInput] = useState('');
@@ -77,7 +79,7 @@ export default function GitHubConfigCard({
       <form onSubmit={handleSubmit} className="space-y-4">
         {/* GitHub Folder Address input */}
         <div>
-          <label htmlFor="github-url-input" className="block text-[15px] font-bold text-slate-705 dark:text-slate-250 mb-2 flex items-center gap-2">
+          <label htmlFor="github-url-input" className="block text-[15px] font-bold text-slate-700 dark:text-slate-200 mb-2 flex items-center gap-2">
             <span className="relative flex h-2 w-2">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
               <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
@@ -119,17 +121,17 @@ export default function GitHubConfigCard({
                 {t.parsingSuccess}：
               </span>
               <span>
-                <b className="text-slate-500 dark:text-slate-400 font-normal">{t.owner}:</b> <code className="font-mono bg-white dark:bg-[#151E33] border border-slate-100 dark:border-slate-800 text-slate-705 dark:text-slate-200 px-1 py-0.5 rounded">{parsedInfo.owner}</code>
+                <b className="text-slate-500 dark:text-slate-400 font-normal">{t.owner}:</b> <code className="font-mono bg-white dark:bg-[#151E33] border border-slate-100 dark:border-slate-800 text-slate-700 dark:text-slate-200 px-1 py-0.5 rounded">{parsedInfo.owner}</code>
               </span>
               <span>
-                <b className="text-slate-500 dark:text-slate-400 font-normal">{t.repo}:</b> <code className="font-mono bg-white dark:bg-[#151E33] border border-slate-100 dark:border-slate-800 text-slate-705 dark:text-slate-200 px-1 py-0.5 rounded">{parsedInfo.repo}</code>
+                <b className="text-slate-500 dark:text-slate-400 font-normal">{t.repo}:</b> <code className="font-mono bg-white dark:bg-[#151E33] border border-slate-100 dark:border-slate-800 text-slate-700 dark:text-slate-200 px-1 py-0.5 rounded">{parsedInfo.repo}</code>
               </span>
               <span>
-                <b className="text-slate-500 dark:text-slate-400 font-normal">{t.branch}:</b> <code className="font-mono bg-white dark:bg-[#151E33] border border-slate-100 dark:border-slate-800 text-slate-705 dark:text-slate-200 px-1 py-0.5 rounded">{parsedInfo.branch || 'main'}</code>
+                <b className="text-slate-500 dark:text-slate-400 font-normal">{t.branch}:</b> <code className="font-mono bg-white dark:bg-[#151E33] border border-slate-100 dark:border-slate-800 text-slate-700 dark:text-slate-200 px-1 py-0.5 rounded">{parsedInfo.branch || 'main'}</code>
               </span>
               {parsedInfo.path && (
                 <span>
-                  <b className="text-slate-500 dark:text-slate-400 font-normal">{t.subpath}:</b> <code className="font-mono bg-slate-105 dark:bg-[#151E33] border border-slate-100 dark:border-slate-800 text-slate-702 dark:text-slate-200 px-1 py-0.5 rounded">{parsedInfo.path}</code>
+                  <b className="text-slate-500 dark:text-slate-400 font-normal">{t.subpath}:</b> <code className="font-mono bg-slate-100 dark:bg-[#151E33] border border-slate-100 dark:border-slate-800 text-slate-700 dark:text-slate-200 px-1 py-0.5 rounded">{parsedInfo.path}</code>
                 </span>
               )}
             </div>
@@ -175,7 +177,7 @@ export default function GitHubConfigCard({
                   className="block w-full rounded-lg border border-slate-200 dark:border-slate-800 py-1.5 px-3 text-xs font-mono transition-all focus:outline-hidden focus:border-slate-400 dark:focus:border-slate-500 focus:ring-2 focus:ring-slate-100 dark:focus:ring-slate-800 bg-white dark:bg-[#090D16] text-slate-800 dark:text-slate-100"
                 />
                 <p className="mt-1.5 text-[10px] text-slate-400 dark:text-slate-500 leading-normal flex items-center gap-1">
-                  <Info className="h-3.5 w-3.5 text-slate-450 dark:text-slate-500 flex-none" />
+                  <Info className="h-3.5 w-3.5 text-slate-400 dark:text-slate-500 flex-none" />
                   <span>
                     {lang === 'zh' ? '额度提升为 5000 次/小时，安全保存在本地' : 'Boosts rate limit to 5000/hr. Kept in LocalStorage.'}
                   </span>
@@ -198,7 +200,7 @@ export default function GitHubConfigCard({
                   id="recursive-scan-toggle"
                   onClick={() => onRecursiveChange(!recursive)}
                   className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden
-                    ${recursive ? 'bg-emerald-500 dark:bg-emerald-400' : 'bg-slate-200 dark:bg-slate-805'}`}
+                    ${recursive ? 'bg-emerald-500 dark:bg-emerald-400' : 'bg-slate-200 dark:bg-slate-800'}`}
                   role="switch"
                   aria-checked={recursive}
                 >
@@ -214,12 +216,12 @@ export default function GitHubConfigCard({
         </div>
 
         {/* Action Button Row */}
-        <div className="flex gap-2.5">
+        <div className="flex flex-wrap gap-2">
           {hasResults && (
             <button
               type="button"
               onClick={onClear}
-              className="px-3 rounded-xl text-xs font-bold bg-rose-50/55 dark:bg-rose-950/20 border border-slate-200/85 dark:border-rose-950/60 hover:bg-rose-100/60 dark:hover:bg-rose-900/10 text-rose-600 dark:text-rose-450 hover:text-rose-700 transition-all cursor-pointer py-3 shrink-0"
+              className="px-3 rounded-xl text-xs font-bold bg-rose-50/55 dark:bg-rose-950/20 border border-slate-200/85 dark:border-rose-950/60 hover:bg-rose-100/60 dark:hover:bg-rose-900/10 text-rose-600 dark:text-rose-400 hover:text-rose-700 transition-all cursor-pointer py-3 shrink-0"
             >
               {lang === 'zh' ? '清除数据' : 'Clear'}
             </button>
@@ -229,7 +231,7 @@ export default function GitHubConfigCard({
             type="submit"
             id="btn-fetch-generate"
             disabled={loading || !parsedInfo}
-            className={`flex items-center justify-center gap-2 rounded-xl py-3 px-4 text-xs font-bold tracking-wider transition-all focus:outline-hidden cursor-pointer flex-1
+            className={`flex items-center justify-center gap-2 rounded-xl py-3 px-4 text-xs font-bold tracking-wider transition-all focus:outline-hidden cursor-pointer flex-1 min-w-[120px]
               ${loading 
                 ? 'bg-slate-400 text-white cursor-not-allowed' 
                 : parsedInfo
@@ -255,11 +257,24 @@ export default function GitHubConfigCard({
               type="button"
               id="card-upload-btn"
               onClick={onOpenUpload}
-              className="flex items-center justify-center gap-1.5 px-3.5 py-3 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 dark:bg-emerald-500/15 dark:hover:bg-emerald-500/25 border border-emerald-500/20 text-xs font-bold transition-all cursor-pointer shrink-0 active:scale-95"
+              className="flex items-center justify-center gap-1.5 px-3 py-3 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 dark:bg-emerald-500/15 dark:hover:bg-emerald-500/25 border border-emerald-500/20 text-xs font-bold transition-all cursor-pointer shrink-0 active:scale-95"
               title={lang === 'zh' ? '上传图片并获取 CDN 链接' : 'Upload image & get CDN link'}
             >
-              <Upload className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-              <span>{lang === 'zh' ? '上传图片' : 'Upload'}</span>
+              <Upload className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+              <span>{lang === 'zh' ? '上传图片' : 'Image'}</span>
+            </button>
+          )}
+
+          {onOpenFileUpload && (
+            <button
+              type="button"
+              id="card-upload-file-btn"
+              onClick={onOpenFileUpload}
+              className="flex items-center justify-center gap-1.5 px-3 py-3 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 dark:bg-emerald-500/15 dark:hover:bg-emerald-500/25 border border-emerald-500/20 text-xs font-bold transition-all cursor-pointer shrink-0 active:scale-95"
+              title={lang === 'zh' ? '上传受限静态文件（JSON/JS/CSS等）并获取 CDN 链接' : 'Upload static file & get CDN link'}
+            >
+              <FileUp className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+              <span>{lang === 'zh' ? '上传文件' : 'File'}</span>
             </button>
           )}
         </div>
