@@ -1,5 +1,5 @@
 # PicDeliver | GitHub 图像 CDN 极速转换器 🚀
-<img width="1856" height="1207" alt="image" src="https://github.com/user-attachments/assets/5963bb7c-2d1a-4663-aa36-b9522612a83c" />
+<img width="1770" height="1248" alt="image" src="https://github.com/user-attachments/assets/c76cafec-6f35-47c9-bd66-a2da94a960c8" />
 
 一键直达：https://img2cdn.loorays.top
 > 基于 GitHub 仓库的极速图片托管、CDN 多节点加速路由与格式转换工具。
